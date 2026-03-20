@@ -1,34 +1,26 @@
 import { useState, useEffect } from 'react';
 import { useFilterStore } from '../store/useFilterStore';
-import { useAttendanceStore } from '../store/useAttendanceStore';
-import { EmployeeAttendance } from '../services/mockData';
+import { useAttendanceStore, EmployeeAttendance } from '../store/useAttendanceStore';
 
 export const useAttendanceData = () => {
   const { month, year, category } = useFilterStore();
-  const { initialize, getOrGenerateRecords, employees, recordsByMonth } = useAttendanceStore();
+  const { initialize, employees, isLoading: isStoreLoading } = useAttendanceStore();
   const [data, setData] = useState<EmployeeAttendance[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    initialize();
-  }, [initialize]);
+    // Panggil initialize setiap kali bulan atau tahun di filter berubah
+    initialize(month, year);
+  }, [initialize, month, year]);
 
   useEffect(() => {
-    setIsLoading(true);
-    // Simulate API call
-    const timer = setTimeout(() => {
-      let currentData = getOrGenerateRecords(month, year);
-      
-      if (category !== 'Semua') {
-        currentData = currentData.filter(emp => emp.role === category);
-      }
-      
-      setData(currentData);
-      setIsLoading(false);
-    }, 300); // reduced delay for snappier feel
+    let currentData = [...employees];
+    
+    if (category !== 'Semua') {
+      currentData = currentData.filter(emp => emp.role === category);
+    }
+    
+    setData(currentData);
+  }, [category, employees]);
 
-    return () => clearTimeout(timer);
-  }, [month, year, category, employees, recordsByMonth, getOrGenerateRecords]);
-
-  return { data, isLoading };
+  return { data, isLoading: isStoreLoading };
 };

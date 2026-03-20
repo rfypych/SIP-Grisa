@@ -1,7 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { useAttendanceData } from '../../hooks/useAttendanceData';
+import { useAttendanceStore } from '../../store/useAttendanceStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Skeleton } from '../../components/ui/skeleton';
+import { Select } from '../../components/ui/select';
 import { Users, UserCheck, UserX, Clock, Info } from 'lucide-react';
 import { useFilterStore } from '../../store/useFilterStore';
 
@@ -17,7 +20,17 @@ const InfoTooltip = ({ text }: { text: string }) => (
 
 export default function DashboardPage() {
   const { data, isLoading } = useAttendanceData();
-  const { month, year } = useFilterStore();
+  const { month, year, category, setMonth, setYear, setCategory } = useFilterStore();
+  const { fetchDashboardStats, dashboardStats } = useAttendanceStore();
+
+  const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const years = [2024, 2025, 2026];
+  const liveSync = useAttendanceStore(state => state.liveSync);
+
+  useEffect(() => {
+    liveSync();
+    fetchDashboardStats();
+  }, [liveSync, fetchDashboardStats]);
 
   const metrics = useMemo(() => {
     let totalHadir = 0;
@@ -170,11 +183,51 @@ export default function DashboardPage() {
   }, [data, month, year]);
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-full">Loading data...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map(i => (
+            <Card key={i}>
+              <CardHeader className="pb-2"><Skeleton className="h-4 w-[100px]" /></CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-[60px] mb-2" />
+                <Skeleton className="h-3 w-[120px]" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-2"><CardContent className="p-6"><Skeleton className="h-[300px] w-full" /></CardContent></Card>
+          <Card><CardContent className="p-6"><Skeleton className="h-[300px] w-full" /></CardContent></Card>
+        </div>
+        <Card><CardContent className="p-6"><Skeleton className="h-[400px] w-full" /></CardContent></Card>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
+      {/* Page Header & Filters */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Ringkasan Bulan {months[month - 1]} {year}</h2>
+          <p className="text-sm text-slate-500 mt-1">Pantau statistik kehadiran secara menyeluruh.</p>
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar w-full sm:w-auto">
+          <Select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="w-28 sm:w-32 bg-white border-slate-200 focus:ring-emerald-500 shadow-sm">
+            {months.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+          </Select>
+          <Select value={year} onChange={(e) => setYear(Number(e.target.value))} className="w-20 sm:w-24 bg-white border-slate-200 focus:ring-emerald-500 shadow-sm">
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </Select>
+          <Select value={category} onChange={(e) => setCategory(e.target.value as any)} className="w-32 sm:w-36 bg-white border-slate-200 focus:ring-emerald-500 shadow-sm">
+            <option value="Semua">Semua Kategori</option>
+            <option value="Guru">Guru</option>
+            <option value="Karyawan">Karyawan</option>
+          </Select>
+        </div>
+      </div>
+
       {/* Top Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
@@ -187,7 +240,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{metrics.totalHadir}</div>
-            <p className="text-xs text-emerald-600 font-medium mt-1">+2.5% dari bulan lalu</p>
+            {dashboardStats?.trends && (
+              <p className={`text-xs font-semibold mt-1 ${dashboardStats.trends.hadir >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {dashboardStats.trends.hadir >= 0 ? '+' : ''}{dashboardStats.trends.hadir}% dari bulan lalu
+              </p>
+            )}
+            {!dashboardStats && <p className="text-xs text-slate-500 mt-1">Menghitung tren...</p>}
           </CardContent>
         </Card>
         <Card>
@@ -200,7 +258,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{metrics.totalSakit}</div>
-            <p className="text-xs text-slate-500 mt-1">-1.2% dari bulan lalu</p>
+            {dashboardStats?.trends && (
+              <p className={`text-xs font-semibold mt-1 ${dashboardStats.trends.sakit <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {dashboardStats.trends.sakit >= 0 ? '+' : ''}{dashboardStats.trends.sakit}% dari bulan lalu
+              </p>
+            )}
+            {!dashboardStats && <p className="text-xs text-slate-500 mt-1">Total keterangan sakit</p>}
           </CardContent>
         </Card>
         <Card>
@@ -213,7 +276,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{metrics.totalIzin}</div>
-            <p className="text-xs text-slate-500 mt-1">Sama seperti bulan lalu</p>
+            {dashboardStats?.trends && (
+               <p className="text-xs text-slate-500 font-semibold mt-1">
+                 {dashboardStats.trends.izin >= 0 ? '+' : ''}{dashboardStats.trends.izin}% dari bulan lalu
+               </p>
+            )}
+            {!dashboardStats && <p className="text-xs text-slate-500 mt-1">Total izin resmi</p>}
           </CardContent>
         </Card>
         <Card>
@@ -226,7 +294,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{metrics.totalAlpha}</div>
-            <p className="text-xs text-red-600 font-medium mt-1">+0.5% dari bulan lalu</p>
+            <p className="text-xs text-slate-500 mt-1">Belum ada keterangan</p>
           </CardContent>
         </Card>
       </div>

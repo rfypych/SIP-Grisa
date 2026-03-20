@@ -1,112 +1,153 @@
 import { create } from 'zustand';
-import { EmployeeAttendance, DailyAttendance, generateMockRecords, names } from '../services/mockData';
+import { persist } from 'zustand/middleware';
+import { useAuthStore } from './useAuthStore';
 
-export interface Employee {
+interface DailyAttendance {
+  date: number;
+  status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpha' | 'Libur';
+  checkIn?: string;
+  checkOut?: string;
+}
+
+interface EmployeeAttendance {
   id: string;
   name: string;
-  role: 'Guru' | 'Karyawan';
+  avatar: string;
+  department: string;
+  role: string;
+  records: DailyAttendance[];
+  summary: {
+    hadir: number;
+    sakit: number;
+    izin: number;
+    cuti: number;
+    alpha: number;
+  };
   photoUrl: string;
 }
 
-interface AttendanceStore {
-  employees: Employee[];
-  recordsByMonth: Record<string, Record<string, DailyAttendance[]>>; // "YYYY-MM" -> empId -> records
-  isInitialized: boolean;
-  initialize: () => void;
-  addEmployee: (employee: Omit<Employee, 'id' | 'photoUrl'>) => void;
-  deleteEmployee: (id: string) => void;
-  updateEmployee: (id: string, data: Partial<Employee>) => void;
-  getOrGenerateRecords: (month: number, year: number) => EmployeeAttendance[];
+interface DashboardStats {
+  summary: { hadir: number; sakit: number; izin: number; alpha: number };
+  trends: { hadir: number; sakit: number; izin: number; alpha: number };
 }
+
+interface AttendanceStore {
+  employees: any[];
+  recordsByMonth: Record<string, Record<string, DailyAttendance[]>>; 
+  isInitialized: boolean;
+  isLoading: boolean;
+  dashboardStats: DashboardStats | null;
+  syncSocket: WebSocket | null;
+  initialize: (month?: number, year?: number) => Promise<void>;
+  fetchDashboardStats: () => Promise<void>;
+  getOrGenerateRecords: (month: number, year: number) => EmployeeAttendance[];
+  liveSync: () => void;
+}
+
+// Menggunakan path relatif agar proxy Vite otomatis mengarahkan ke Backend (8000)
+// Ini memungkinkan akses dari HP via IP lokal tanpa mengubah variabel manual.
+const API_BASE_URL = ''; 
+const WS_BASE_URL = `ws://${window.location.host}/ws/kiosk`;
 
 export const useAttendanceStore = create<AttendanceStore>((set, get) => ({
   employees: [],
   recordsByMonth: {},
   isInitialized: false,
-  
-  initialize: () => {
-    if (get().isInitialized) return;
+  isLoading: false,
+  dashboardStats: null,
+  syncSocket: null,
+
+  initialize: async (month?: number, year?: number) => {
+    const currentMonth = month || new Date().getMonth() + 1;
+    const currentYear = year || new Date().getFullYear();
     
-    // Generate initial employees
-    const initialEmployees: Employee[] = names.map((name, index) => ({
-      id: `EMP-${(index + 1).toString().padStart(3, '0')}`,
-      name,
-      role: index % 3 === 0 ? 'Karyawan' : 'Guru',
-      photoUrl: `https://i.pravatar.cc/150?u=${index}`,
-    }));
-    
-    set({ employees: initialEmployees, isInitialized: true });
-  },
-  
-  addEmployee: (employeeData) => {
-    set((state) => {
-      const newId = `EMP-${(state.employees.length + 1).toString().padStart(3, '0')}`;
-      const newEmployee: Employee = {
-        ...employeeData,
-        id: newId,
-        photoUrl: `https://i.pravatar.cc/150?u=${newId}`,
-      };
-      return { employees: [...state.employees, newEmployee] };
-    });
-  },
-  
-  deleteEmployee: (id) => {
-    set((state) => ({
-      employees: state.employees.filter((emp) => emp.id !== id)
-    }));
-  },
-  
-  updateEmployee: (id, data) => {
-    set((state) => ({
-      employees: state.employees.map((emp) => 
-        emp.id === id ? { ...emp, ...data } : emp
-      )
-    }));
-  },
-  
-  getOrGenerateRecords: (month, year) => {
-    const state = get();
-    const monthKey = `${year}-${month.toString().padStart(2, '0')}`;
-    let currentMonthRecords = state.recordsByMonth[monthKey];
-    
-    // If records for this month don't exist at all, or we have new employees
-    let needsUpdate = false;
-    const newMonthRecords = { ...(currentMonthRecords || {}) };
-    
-    state.employees.forEach(emp => {
-      if (!newMonthRecords[emp.id]) {
-        newMonthRecords[emp.id] = generateMockRecords(month, year);
-        needsUpdate = true;
-      }
-    });
-    
-    if (needsUpdate) {
-      set(s => ({
-        recordsByMonth: {
-          ...s.recordsByMonth,
-          [monthKey]: newMonthRecords
+    const token = useAuthStore.getState().token;
+    const logout = useAuthStore.getState().logout;
+    set({ isLoading: true });
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/reports?month=${currentMonth}&year=${currentYear}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.status === 401) {
+            logout();
+            return;
         }
-      }));
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            const employees = data.data.map((item: any) => {
+                // Konversi objek 'kehadiran' ({ "1": {...}, "2": {...} }) menjadi array records
+                const recordsArray = Object.entries(item.kehadiran || {}).map(([day, details]: [string, any]) => ({
+                    date: parseInt(day),
+                    status: (details.status || 'Alpha').charAt(0).toUpperCase() + (details.status || 'Alpha').slice(1),
+                    checkIn: details.masuk,
+                    checkOut: details.pulang
+                }));
+
+                return {
+                    id: item.id ? item.id.toString() : 'unknown',
+                    name: item.nama || 'Tanpa Nama',
+                    photoUrl: item.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.nama || 'User'}`,
+                    avatar: item.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.nama || 'User'}`, // Jaga kompatibilitas
+                    department: item.role || 'Staff',
+                    role: item.role || 'Staff',
+                    summary: item.summary || { hadir: 0, sakit: 0, izin: 0, cuti: 0, alpha: 0 },
+                    records: recordsArray
+                };
+            });
+            
+            set({ employees, isInitialized: true });
+        }
+    } catch (error) {
+        console.error("Gagal menarik data absensi dari Backend:", error);
+    } finally {
+        set({ isLoading: false });
     }
+  },
+
+  fetchDashboardStats: async () => {
+    const token = useAuthStore.getState().token;
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+            set({ dashboardStats: data });
+        }
+    } catch (e) {
+        console.error("Gagal fetch statistik dashboard:", e);
+    }
+  },
+
+  liveSync: () => {
+    const state = get();
+    if (state.syncSocket && state.syncSocket.readyState === WebSocket.OPEN) return;
+
+    console.log("[LIVE-SYNC] Menghubungkan ke server untuk update real-time...");
+    const ws = new WebSocket(WS_BASE_URL);
+    set({ syncSocket: ws });
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.event === 'NEW_ATTENDANCE' || data.event === 'MANUAL_ATTENDANCE_UPDATE') {
+            console.log("[LIVE-SYNC] Update absensi terdeteksi! Refreshing dashboard...");
+            get().initialize();
+            get().fetchDashboardStats();
+        }
+    };
     
-    // Combine employees with their records and summary
-    return state.employees.map(emp => {
-      const records = newMonthRecords[emp.id] || [];
-      const summary = records.reduce((acc, curr) => {
-        if (curr.status === 'Hadir') acc.hadir++;
-        if (curr.status === 'Sakit') acc.sakit++;
-        if (curr.status === 'Izin') acc.izin++;
-        if (curr.status === 'Cuti') acc.cuti++;
-        if (curr.status === 'Alpha') acc.alpha++;
-        return acc;
-      }, { hadir: 0, sakit: 0, izin: 0, cuti: 0, alpha: 0 });
-      
-      return {
-        ...emp,
-        records,
-        summary
-      };
-    });
+    ws.onclose = () => {
+        console.log("[LIVE-SYNC] Koneksi terputus. Mencoba menghubungkan kembali dalam 5 detik...");
+        set({ syncSocket: null });
+        setTimeout(() => get().liveSync(), 5000);
+    };
+  },
+
+  getOrGenerateRecords: (month, year) => {
+    const { employees } = get();
+    return employees;
   }
 }));
-

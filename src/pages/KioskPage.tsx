@@ -1,147 +1,419 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ScanFace, CheckCircle2 } from 'lucide-react';
+import { ScanFace, CheckCircle2, Clock, Calendar, Settings, Camera, Save, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import Webcam from 'react-webcam';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useAuthStore } from '../store/useAuthStore';
 
 export default function KioskPage() {
+  const { 
+    cameraSource, 
+    setCameraSource, 
+    successSoundUrl, 
+    successSoundEnabled,
+    cooldownSeconds,
+    fetchBackendSettings 
+  } = useSettingsStore();
+  const { token } = useAuthStore();
   const [time, setTime] = useState(new Date());
-  const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'success'>('idle');
+  const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'success' | 'already-done'>('idle');
   const [scannedName, setScannedName] = useState('');
+  const [showLocalSettings, setShowLocalSettings] = useState(false);
+  const [kioskName, setKioskName] = useState(() => localStorage.getItem('sip-grisa-kiosk-name') || 'Gerbang Utama');
+  const [tempCamera, setTempCamera] = useState(cameraSource);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  
+  const webcamRef = useRef<Webcam>(null);
+  const ws = useRef<WebSocket | null>(null);
+
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    
+    // Antolasi list kamera
+    navigator.mediaDevices.enumerateDevices().then(devices => {
+        const videoDevices = devices.filter(i => i.kind === 'videoinput');
+        setDevices(videoDevices);
+    });
 
-  // Simulate scanning process
+    // Fetch backend settings to get cooldownSeconds
+    if (token) {
+        fetchBackendSettings(token);
+    }
+
+    return () => clearInterval(timer);
+  }, [token, fetchBackendSettings]);
+
+  const saveLocalConfig = () => {
+    setCameraSource(tempCamera);
+    localStorage.setItem('sip-grisa-kiosk-name', kioskName);
+    setShowLocalSettings(false);
+    window.location.reload(); // Refresh to apply cam & websocket changes if needed
+  };
+
+  // WebSocket Connection & Frame Capture (Optimized Request-Response)
   useEffect(() => {
-    const simulateScan = () => {
-      setScanStatus('scanning');
-      setTimeout(() => {
-        setScannedName('Budi Santoso');
-        setScanStatus('success');
-        
-        setTimeout(() => {
-          setScanStatus('idle');
-        }, 3000);
-      }, 2000);
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/kiosk`;
+    
+    ws.current = new WebSocket(wsUrl);
+
+    ws.current.onopen = () => {
+      if (token) {
+        ws.current?.send(JSON.stringify({
+          type: 'auth',
+          token: token
+        }));
+      }
     };
 
-    const interval = setInterval(simulateScan, 8000);
-    return () => clearInterval(interval);
+    let isProcessing = false;
+
+    const captureAndSend = () => {
+      if (ws.current?.readyState === WebSocket.OPEN && webcamRef.current && !isProcessing) {
+        const imageSrc = webcamRef.current.getScreenshot();
+        if (imageSrc) {
+          isProcessing = true;
+          ws.current.send(JSON.stringify({
+            type: 'frame',
+            image: imageSrc
+          }));
+        }
+      }
+    };
+
+    ws.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      isProcessing = false;
+
+      if (data.event === 'success') {
+        setScannedName(data.name);
+        setScanStatus('success');
+        
+        // Putar suara berhasil (jika diaktifkan secara global)
+        if (successSoundEnabled) {
+          const soundUrl = successSoundUrl || '/api/sounds/applepay.mp3';
+          const audio = new Audio(soundUrl);
+          audio.play().catch(e => console.error("Auto-play prevented:", e));
+        }
+
+        // Durasi tampilan sukses: gunakan durasi tetap singkat (3 detik) agar kios siap untuk orang berikutnya.
+        // Cooldown tetap berjalan di backend untuk mencegah dobel absen orang yg sama.
+        const displayDuration = 3000; 
+        
+        setTimeout(() => {
+          setScanStatus('scanning');
+        }, displayDuration);
+      } else if (data.event === 'already_done') {
+        setScannedName(data.name);
+        setScanStatus('already-done');
+        
+        setTimeout(() => {
+          setScanStatus('scanning');
+        }, 3000);
+      } else if (data.event === 'searching' || data.event === 'on_cooldown') {
+        // Hanya set scanning jika tidak sedang menampilkan modal sukses
+        setScanStatus(prev => (prev === 'success' || prev === 'already-done') ? prev : 'scanning');
+      }
+    };
+
+    const sendLoop = setInterval(captureAndSend, 1000);
+
+    return () => {
+      clearInterval(sendLoop);
+      ws.current?.close();
+    };
   }, []);
 
   const formattedTime = time.toLocaleTimeString('id-ID', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
 
   const formattedDate = time.toLocaleDateString('id-ID', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
   return (
-    <div className="relative min-h-screen w-full overflow-y-auto bg-slate-900 flex items-center justify-center font-sans p-4 sm:p-8">
-      {/* Blurred Background Image */}
-      <div 
-        className="absolute inset-0 bg-cover bg-center opacity-40 blur-md scale-105 fixed"
-        style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1523050854058-8df90110c9f1?q=80&w=2070&auto=format&fit=crop)' }}
-      />
+    <div className="relative min-h-screen w-full overflow-hidden bg-[#f8fafc] flex flex-col font-sans">
+      {/* Soft Background Accents */}
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/50 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2" />
+      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-50/50 blur-[120px] rounded-full translate-y-1/2 -translate-x-1/2" />
       
-      {/* Overlay Gradient */}
-      <div className="fixed inset-0 bg-gradient-to-b from-slate-900/50 to-slate-900/80" />
-
-      {/* Main Glassmorphism Card */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative z-10 w-full max-w-4xl rounded-3xl border border-white/10 bg-white/10 backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col md:flex-row"
-      >
-        {/* Left Side: Time & Info */}
-        <div className="flex-1 p-6 md:p-12 flex flex-col justify-center border-b md:border-b-0 md:border-r border-white/10">
-          <div className="flex items-center gap-3 text-emerald-400 mb-8">
-            <ScanFace className="w-8 h-8" />
-            <h1 className="text-2xl font-bold tracking-tight">SIP Grisa Terminal</h1>
-          </div>
-          
-          <div className="space-y-2">
-            <h2 className="text-5xl md:text-6xl font-mono font-bold text-white tracking-tighter">
-              {formattedTime}
-            </h2>
-            <p className="text-lg md:text-xl text-slate-300 font-medium">
-              {formattedDate}
-            </p>
-          </div>
-
-          <div className="mt-8 md:mt-12 text-slate-400 text-sm">
-            <p>Silakan posisikan wajah Anda di dalam area kotak.</p>
-            <p>Sistem akan memindai secara otomatis.</p>
-          </div>
-          
-          <Link to="/admin/dashboard" className="mt-8 md:mt-auto pt-4 md:pt-8 text-xs text-slate-500 hover:text-slate-300 transition-colors">
-            Masuk ke Admin Dashboard
-          </Link>
-        </div>
-
-        {/* Right Side: Camera Viewfinder */}
-        <div className="flex-1 p-6 md:p-12 flex items-center justify-center bg-black/20 relative">
-          <div className="relative w-full aspect-square max-w-sm rounded-2xl overflow-hidden border-2 border-slate-700 bg-slate-800">
-            {/* Corner Markers */}
-            <div className="absolute top-4 left-4 w-8 h-8 border-t-4 border-l-4 border-emerald-500 rounded-tl-lg z-20" />
-            <div className="absolute top-4 right-4 w-8 h-8 border-t-4 border-r-4 border-emerald-500 rounded-tr-lg z-20" />
-            <div className="absolute bottom-4 left-4 w-8 h-8 border-b-4 border-l-4 border-emerald-500 rounded-bl-lg z-20" />
-            <div className="absolute bottom-4 right-4 w-8 h-8 border-b-4 border-r-4 border-emerald-500 rounded-br-lg z-20" />
-
-            {/* Camera Placeholder */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
-              <ScanFace className="w-16 h-16 mb-4 opacity-50" />
-              <p className="font-medium">Kamera Aktif</p>
+      {/* Fixed Layout Container */}
+      <div className="relative z-10 flex-1 flex flex-col p-8 md:p-12">
+        
+        {/* Header - Clean & Minimal like Dashboard */}
+        <header className="flex justify-between items-center mb-12">
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-3"
+          >
+            <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200">
+               <ScanFace className="w-7 h-7 text-white" />
             </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">SIP Grisa</h1>
+              <p className="text-[10px] text-emerald-600 font-black tracking-widest uppercase">{kioskName}</p>
+            </div>
+          </motion.div>
 
-            {/* Scanning Animation Overlay */}
-            <AnimatePresence>
-              {scanStatus === 'scanning' && (
-                <motion.div
-                  initial={{ top: '0%' }}
-                  animate={{ top: '100%' }}
-                  transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                  className="absolute left-0 right-0 h-1 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)] z-30"
-                />
-              )}
-            </AnimatePresence>
-          </div>
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex gap-12"
+          >
+            <div className="flex items-center gap-3">
+               <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
+                  <Clock className="w-5 h-5 text-slate-600" />
+               </div>
+               <div>
+                  <div className="text-2xl font-bold text-slate-900 tabular-nums leading-none">
+                    {formattedTime}
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Waktu Sekarang</p>
+               </div>
+            </div>
+            <div className="flex items-center gap-3">
+               <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-slate-600" />
+               </div>
+               <div>
+                  <div className="text-sm font-bold text-slate-700 leading-none">
+                    {formattedDate}
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Tanggal Hari Ini</p>
+               </div>
+            </div>
+          </motion.div>
+        </header>
 
-          {/* Success Popup */}
-          <AnimatePresence>
-            {scanStatus === 'success' && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: -20 }}
-                className="absolute inset-0 z-40 flex items-center justify-center bg-emerald-900/90 backdrop-blur-sm p-8 text-center"
-              >
-                <div className="flex flex-col items-center">
+        {/* Main Viewport Container */}
+        <main className="flex-1 flex flex-col items-center justify-center">
+          <motion.div 
+            initial={{ scale: 0.98, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative w-full max-w-4xl aspect-video rounded-[3rem] bg-white border border-slate-200 shadow-[0_30px_70px_-15px_rgba(0,0,0,0.1)] overflow-hidden p-3"
+          >
+            <div className="relative w-full h-full rounded-[2.5rem] overflow-hidden bg-slate-100">
+              {/* Corner Indicators */}
+              <div className="absolute top-10 left-10 w-20 h-20 border-t-4 border-l-4 border-emerald-500/30 rounded-tl-3xl z-20 pointer-events-none" />
+              <div className="absolute top-10 right-10 w-20 h-20 border-t-4 border-r-4 border-emerald-500/30 rounded-tr-3xl z-20 pointer-events-none" />
+              <div className="absolute bottom-10 left-10 w-20 h-20 border-b-4 border-l-4 border-emerald-500/30 rounded-bl-3xl z-20 pointer-events-none" />
+              <div className="absolute bottom-10 right-10 w-20 h-20 border-b-4 border-r-4 border-emerald-500/30 rounded-br-3xl z-20 pointer-events-none" />
+
+
+
+              {/* Camera Rendering */}
+              <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  videoConstraints={{ 
+                      width: 1280, 
+                      height: 720, 
+                      facingMode: cameraSource === '0' || cameraSource === '' ? "user" : undefined,
+                      deviceId: cameraSource !== '0' && cameraSource !== '' && !cameraSource.startsWith('http') ? cameraSource : undefined
+                  }}
+                  className="w-full h-full object-cover"
+                  mirrored={true}
+                  screenshotQuality={0.9}
+                  disablePictureInPicture={true}
+                  forceScreenshotSourceSize={false}
+                  imageSmoothing={true}
+                  onUserMedia={() => {}}
+                  onUserMediaError={() => {}}
+              />
+
+              {/* Scanning Ray Effect */}
+              <AnimatePresence>
+                {scanStatus === 'scanning' && (
                   <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", bounce: 0.5, delay: 0.1 }}
-                  >
-                    <CheckCircle2 className="w-24 h-24 text-emerald-400 mb-6" />
-                  </motion.div>
-                  <h3 className="text-3xl font-bold text-white mb-2">Absen Sukses!</h3>
-                  <p className="text-xl text-emerald-200">Selamat Pagi,</p>
-                  <p className="text-2xl font-semibold text-white mt-1">{scannedName}</p>
-                  <p className="text-emerald-400 mt-4 font-mono">{formattedTime}</p>
-                </div>
+                    initial={{ top: '0%' }}
+                    animate={{ top: '100%' }}
+                    transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-x-0 h-1.5 bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.8)] z-20 pointer-events-none"
+                  />
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-12 text-center"
+          >
+             <p className="text-slate-400 text-sm font-medium tracking-[0.4em] uppercase">Posisikan wajah Anda pada area bingkai</p>
+          </motion.div>
+        </main>
+      </div>
+
+      {/* Success Modal - Matching Dashboard Green Colors */}
+      <AnimatePresence>
+        {scanStatus === 'success' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-emerald-500/20 backdrop-blur-3xl p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-[4rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.1)] p-16 flex flex-col items-center max-w-2xl w-full border border-white"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", damping: 10, stiffness: 100 }}
+                className="w-32 h-32 bg-emerald-500 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-emerald-200"
+              >
+                <CheckCircle2 className="w-16 h-16 text-white" />
               </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </motion.div>
+
+              <p className="text-emerald-500 text-sm font-black uppercase tracking-[0.4em] mb-4">Absensi Berhasil</p>
+              
+              <div className="text-center mb-12">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Halo, Selamat Datang</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">
+                   {scannedName}
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-6 bg-slate-50 px-10 py-5 rounded-[2rem] border border-slate-100">
+                <span className="text-slate-900 font-bold text-2xl tabular-nums tracking-tighter">
+                  {formattedTime}
+                </span>
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-200" />
+                <span className="text-slate-500 text-xs font-bold uppercase tracking-widest text-center">
+                  Sistem Informasi Presensi Grisa
+                </span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Already Done Modal - Blue/Amber Theme */}
+      <AnimatePresence>
+        {scanStatus === 'already-done' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-blue-500/20 backdrop-blur-3xl p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-[4rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.1)] p-16 flex flex-col items-center max-w-2xl w-full border border-white"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", damping: 10, stiffness: 100 }}
+                className="w-32 h-32 bg-blue-500 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-blue-200"
+              >
+                <Clock className="w-16 h-16 text-white" />
+              </motion.div>
+
+              <p className="text-blue-500 text-sm font-black uppercase tracking-[0.4em] mb-4">Sudah Presensi</p>
+              
+              <div className="text-center mb-12">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Terima Kasih,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">
+                   {scannedName}
+                </h3>
+                <p className="text-slate-500 mt-4 font-bold text-lg">Bapak/Ibu sudah melakukan presensi hari ini.</p>
+              </div>
+
+              <div className="flex items-center gap-6 bg-slate-50 px-10 py-5 rounded-[2rem] border border-slate-100">
+                 <span className="text-blue-600 font-black text-xs uppercase tracking-widest">Semangat Beraktivitas!</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hidden Settings Toggle (Bottom Left for technicians) */}
+      <button 
+        onClick={() => setShowLocalSettings(true)}
+        className="fixed bottom-6 left-6 z-40 p-4 bg-white/50 backdrop-blur-md rounded-full opacity-0 hover:opacity-100 transition-opacity border border-slate-200"
+      >
+        <Settings className="w-5 h-5 text-slate-400" />
+      </button>
+
+      {/* Local Kiosk Settings Modal */}
+      <AnimatePresence>
+        {showLocalSettings && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Konfigurasi Kios Unit</h3>
+                <button onClick={() => setShowLocalSettings(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">Nama Gerbang/Unit</label>
+                  <input 
+                    type="text" 
+                    value={kioskName}
+                    onChange={e => setKioskName(e.target.value)}
+                    placeholder="Misal: Gerbang Depan"
+                    className="w-full h-12 px-4 rounded-xl border-2 border-slate-100 focus:border-emerald-500 focus:outline-none font-bold text-slate-700"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">Webcam Perangkat</label>
+                  <select 
+                    value={tempCamera}
+                    onChange={e => setTempCamera(e.target.value)}
+                    className="w-full h-12 px-4 rounded-xl border-2 border-slate-100 focus:border-emerald-500 focus:outline-none font-bold text-slate-700 bg-white"
+                  >
+                    <option value="0">Default (System 0)</option>
+                    {devices.map(device => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                            {device.label || `Camera ${device.deviceId.hex?.slice(0,5)}`}
+                        </option>
+                    ))}
+                    <option value="url">Stream URL (Set di Admin)</option>
+                  </select>
+                </div>
+
+                <div className="pt-4 flex flex-col gap-3">
+                  <button 
+                    onClick={saveLocalConfig}
+                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold shadow-xl shadow-emerald-200 flex items-center justify-center gap-2 transition-all active:scale-95"
+                  >
+                    <Save className="w-5 h-5" /> Terapkan & Restart
+                  </button>
+                  <p className="text-[10px] text-slate-400 text-center uppercase font-bold">Pengaturan ini hanya disimpan di PC ini saja.</p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hidden Admin Link Area */}
+      <Link to="/admin/dashboard" className="fixed bottom-6 right-6 z-40 p-4 bg-slate-100 rounded-full opacity-0 hover:opacity-100 transition-opacity">
+        <ScanFace className="w-6 h-6 text-slate-300" />
+      </Link>
     </div>
   );
 }
