@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" />
   <img src="https://img.shields.io/badge/Tailwind_CSS_4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  <img src="https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white" />
   <br />
   <p align="center">
     <b>Sistem Presensi Berbasis Pengenalan Wajah (Face Recognition) yang Cepat, Akurat, dan Modern.</b>
@@ -33,6 +33,7 @@
 
 ### Backend & Frontend (./)
 - **FastAPI**: Engine API asinkron dengan performa tinggi.
+- **MySQL**: Penyimpanan data relasional yang tangguh dan skalabel.
 - **Dlib & Face Recognition**: Otak di balik biometrik wajah.
 - **React 19 & Vite**: Interface yang responsif dan modern.
 - **Tailwind CSS 4 & Zustand**: Desain elegan dan state management efisien.

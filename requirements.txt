@@ -4,3 +4,8 @@ numpy
 fastapi
 uvicorn
 python-multipart
+pymysql
+passlib[bcrypt]
+python-jose[cryptography]
+pydantic
+httpx
