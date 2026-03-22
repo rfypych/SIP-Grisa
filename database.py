@@ -98,7 +98,9 @@ def init_db():
                 export_signature_name VARCHAR(150) DEFAULT '( ......................................... )',
                 export_signature_role VARCHAR(150) DEFAULT 'Mengetahui,',
                 google_api_key VARCHAR(255),
-                test_mode TINYINT(1) DEFAULT 0
+                test_mode TINYINT(1) DEFAULT 0,
+                checkin_start_time VARCHAR(10) DEFAULT '06:00',
+                checkout_start_time VARCHAR(10) DEFAULT '14:00'
             )
             ''')
             
@@ -111,7 +113,9 @@ def init_db():
                 ("alpha_limit_time", "VARCHAR(10) DEFAULT '07:30'"),
                 ("google_api_key", "VARCHAR(255)"),
                 ("test_mode", "TINYINT(1) DEFAULT 0"),
-                ("presence_limit_time", "VARCHAR(10) DEFAULT '14:00'")
+                ("presence_limit_time", "VARCHAR(10) DEFAULT '14:00'"),
+                ("checkin_start_time", "VARCHAR(10) DEFAULT '06:00'"),
+                ("checkout_start_time", "VARCHAR(10) DEFAULT '14:00'")
             ]
             
             for col_name, col_def in new_columns:
@@ -133,8 +137,8 @@ def init_db():
                 cursor.execute("""
                     INSERT INTO system_settings 
                     (id, cooldown_seconds, min_gap_minutes, checkout_start_hour, program_start_date, success_sound_url, success_sound_enabled, 
-                     export_location, export_signature_enabled, export_signature_name, export_signature_role, alpha_limit_time, presence_limit_time) 
-                    VALUES (1, 60, 60, 11, '2026-03-01', '/api/sounds/applepay.mp3', 1, 'Grobogan', 1, '( ......................................... )', 'Mengetahui,', '07:30', '14:00')
+                     export_location, export_signature_enabled, export_signature_name, export_signature_role, alpha_limit_time, presence_limit_time, checkin_start_time, checkout_start_time)
+                    VALUES (1, 60, 60, 11, '2026-03-01', '/api/sounds/applepay.mp3', 1, 'Grobogan', 1, '( ......................................... )', 'Mengetahui,', '07:30', '14:00', '06:00', '14:00')
                 """)
                 print("[DB INFO] System Settings initialized with defaults.")
 

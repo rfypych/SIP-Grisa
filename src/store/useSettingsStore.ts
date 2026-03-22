@@ -14,6 +14,8 @@ interface SettingsState {
   programStartDate: string;
   alphaLimitTime: string;
   presenceLimitTime: string;
+  checkinStartTime: string;
+  checkoutStartTime: string;
   successSoundUrl: string;
   successSoundEnabled: boolean;
   exportLocation: string;
@@ -29,6 +31,8 @@ interface SettingsState {
     program_start_date: string, 
     alpha_limit_time: string,
     presence_limit_time: string,
+    checkin_start_time: string,
+    checkout_start_time: string,
     success_sound_url: string, 
     success_sound_enabled: boolean,
     export_location: string,
@@ -56,6 +60,8 @@ export const useSettingsStore = create<SettingsState>()(
       programStartDate: '2026-03-01',
       alphaLimitTime: '07:30',
       presenceLimitTime: '14:00',
+      checkinStartTime: '06:00',
+      checkoutStartTime: '14:00',
       successSoundUrl: '/api/sounds/applepay.mp3',
       successSoundEnabled: true,
       exportLocation: 'Grobogan',
@@ -78,6 +84,8 @@ export const useSettingsStore = create<SettingsState>()(
             programStartDate: data.program_start_date || '2026-03-01',
             alphaLimitTime: data.alpha_limit_time || '07:30',
             presenceLimitTime: data.presence_limit_time || '14:00',
+            checkinStartTime: data.checkin_start_time || '06:00',
+            checkoutStartTime: data.checkout_start_time || '14:00',
             successSoundUrl: data.success_sound_url || '/api/sounds/applepay.mp3',
             successSoundEnabled: !!data.success_sound_enabled,
             exportLocation: data.export_location || 'Grobogan',
@@ -93,25 +101,6 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       updateBackendSettings: async (token, settingsPartial) => {
-      const state = get();
-      
-      // Merge partial with current state to satisfy backend requirement
-      const fullSettings = {
-        cooldown_seconds: settingsPartial.cooldown_seconds ?? state.cooldownSeconds,
-        min_gap_minutes: settingsPartial.min_gap_minutes ?? state.minGapMinutes,
-        program_start_date: settingsPartial.program_start_date ?? state.programStartDate,
-        alpha_limit_time: settingsPartial.alpha_limit_time ?? state.alphaLimitTime,
-        presence_limit_time: settingsPartial.presence_limit_time ?? state.presenceLimitTime,
-        success_sound_url: settingsPartial.success_sound_url ?? state.successSoundUrl,
-        success_sound_enabled: settingsPartial.success_sound_enabled ?? state.successSoundEnabled,
-        export_location: settingsPartial.export_location ?? state.exportLocation,
-        export_signature_enabled: settingsPartial.export_signature_enabled ?? state.exportSignatureEnabled,
-        export_signature_name: settingsPartial.export_signature_name ?? state.exportSignatureName,
-        export_signature_role: settingsPartial.export_signature_role ?? state.exportSignatureRole,
-        google_api_key: settingsPartial.google_api_key ?? state.googleApiKey,
-        test_mode: settingsPartial.test_mode ?? (state.testMode ? 1 : 0)
-      };
-
       try {
         const response = await fetch('/api/settings', {
           method: 'POST',
@@ -119,25 +108,29 @@ export const useSettingsStore = create<SettingsState>()(
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify(fullSettings)
+          body: JSON.stringify(settingsPartial) // Send only the updated fields
         });
         
         if (response.ok) {
-          set({
-            cooldownSeconds: fullSettings.cooldown_seconds,
-            minGapMinutes: fullSettings.min_gap_minutes,
-            programStartDate: fullSettings.program_start_date,
-            alphaLimitTime: fullSettings.alpha_limit_time,
-            presenceLimitTime: fullSettings.presence_limit_time,
-            successSoundUrl: fullSettings.success_sound_url,
-            successSoundEnabled: !!fullSettings.success_sound_enabled,
-            exportLocation: fullSettings.export_location,
-            exportSignatureEnabled: !!fullSettings.export_signature_enabled,
-            exportSignatureName: fullSettings.export_signature_name,
-            exportSignatureRole: fullSettings.export_signature_role,
-            googleApiKey: fullSettings.google_api_key,
-            testMode: !!fullSettings.test_mode
-          });
+          // Update the local state only with the fields that were modified
+          set((state) => ({
+            ...state,
+            cooldownSeconds: settingsPartial.cooldown_seconds !== undefined ? settingsPartial.cooldown_seconds : state.cooldownSeconds,
+            minGapMinutes: settingsPartial.min_gap_minutes !== undefined ? settingsPartial.min_gap_minutes : state.minGapMinutes,
+            programStartDate: settingsPartial.program_start_date !== undefined ? settingsPartial.program_start_date : state.programStartDate,
+            alphaLimitTime: settingsPartial.alpha_limit_time !== undefined ? settingsPartial.alpha_limit_time : state.alphaLimitTime,
+            presenceLimitTime: settingsPartial.presence_limit_time !== undefined ? settingsPartial.presence_limit_time : state.presenceLimitTime,
+            checkinStartTime: settingsPartial.checkin_start_time !== undefined ? settingsPartial.checkin_start_time : state.checkinStartTime,
+            checkoutStartTime: settingsPartial.checkout_start_time !== undefined ? settingsPartial.checkout_start_time : state.checkoutStartTime,
+            successSoundUrl: settingsPartial.success_sound_url !== undefined ? settingsPartial.success_sound_url : state.successSoundUrl,
+            successSoundEnabled: settingsPartial.success_sound_enabled !== undefined ? !!settingsPartial.success_sound_enabled : state.successSoundEnabled,
+            exportLocation: settingsPartial.export_location !== undefined ? settingsPartial.export_location : state.exportLocation,
+            exportSignatureEnabled: settingsPartial.export_signature_enabled !== undefined ? !!settingsPartial.export_signature_enabled : state.exportSignatureEnabled,
+            exportSignatureName: settingsPartial.export_signature_name !== undefined ? settingsPartial.export_signature_name : state.exportSignatureName,
+            exportSignatureRole: settingsPartial.export_signature_role !== undefined ? settingsPartial.export_signature_role : state.exportSignatureRole,
+            googleApiKey: settingsPartial.google_api_key !== undefined ? settingsPartial.google_api_key : state.googleApiKey,
+            testMode: settingsPartial.test_mode !== undefined ? !!settingsPartial.test_mode : state.testMode
+          }));
           return true;
         }
           return false;

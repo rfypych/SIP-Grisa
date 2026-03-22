@@ -913,9 +913,40 @@ class ConnectionManager:
         for connection in self.active_connections:
             await connection.send_json(message)
 
+
+import time
+
 manager = ConnectionManager()
 # Simpan waktu deteksi terakhir per ID untuk cooldown (mencegah spam/accidental)
 kiosk_cooldowns = {}
+
+# CACHE for system settings to prevent DB query per frame
+cached_system_settings = None
+last_settings_fetch = 0
+SETTINGS_CACHE_TTL = 10  # refresh every 10 seconds if needed
+
+def get_cached_settings(conn):
+    global cached_system_settings, last_settings_fetch
+    now = time.time()
+    if cached_system_settings is None or (now - last_settings_fetch) > SETTINGS_CACHE_TTL:
+        try:
+            cached_system_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
+            last_settings_fetch = now
+        except Exception as e:
+            pass # fallback to old if fails
+    return cached_system_settings
+
+def cleanup_kiosk_cooldowns():
+    # Remove entries older than 12 hours (43200 seconds)
+    global kiosk_cooldowns
+    now = datetime.now()
+    keys_to_delete = []
+    for face_id, last_seen in kiosk_cooldowns.items():
+        if (now - last_seen).total_seconds() > 43200:
+            keys_to_delete.append(face_id)
+    for k in keys_to_delete:
+        del kiosk_cooldowns[k]
+
 
 @app.websocket("/ws/kiosk")
 async def websocket_kiosk_endpoint(websocket: WebSocket):
@@ -930,6 +961,9 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
     
     try:
         while True:
+            # Cleanup cooldowns periodically
+            if time.time() % 600 < 1:  # Run roughly every 10 mins
+                cleanup_kiosk_cooldowns()
             data = await websocket.receive_json()
             
             # Mendukung pesan 'auth' pertama kali dari Kiosk
@@ -979,7 +1013,7 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                     conn = database.get_db_connection()
                     try:
                         # Ambil Pengaturan Sistem dari DB untuk logika presensi
-                        sys_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
+                        sys_settings = get_cached_settings(conn)
                         test_enabled = sys_settings['test_mode'] if sys_settings else 0
                         
                         now = datetime.now()
@@ -994,10 +1028,12 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                         real_name = emp_data['name'] if emp_data else face_id
 
                         # Ambil Pengaturan Sistem dari DB untuk logika presensi
-                        sys_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
+                        sys_settings = get_cached_settings(conn)
                         cooldown_val = sys_settings['cooldown_seconds'] if sys_settings else 60
                         min_gap_val = sys_settings['min_gap_minutes'] if sys_settings else 60
                         presence_limit_val = sys_settings['presence_limit_time'] if sys_settings else '14:00'
+                        checkin_start_val = sys_settings['checkin_start_time'] if sys_settings and 'checkin_start_time' in sys_settings and sys_settings['checkin_start_time'] else '06:00'
+                        checkout_start_val = sys_settings['checkout_start_time'] if sys_settings and 'checkout_start_time' in sys_settings and sys_settings['checkout_start_time'] else '14:00'
                         
                         # print(f"DEBUG: Logic using cooldown={cooldown_val}, min_gap={min_gap_val}, limit={presence_limit_val}")
                         
@@ -1035,6 +1071,15 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                     "debug": debug_info
                                 })
                             elif not existing:
+                                # BLOCK CHECK IN BEFORE START TIME
+                                if time_now < checkin_start_val:
+                                    await websocket.send_json({
+                                        "event": "early_warning",
+                                        "message": f"Belum waktunya presensi masuk ({checkin_start_val})",
+                                        "debug": debug_info
+                                    })
+                                    continue # Skip logic further
+
                                 # Tentukan status berdasarkan jam alpha
                                 status = "hadir"
                                 if time_now > presence_limit_val:
@@ -1058,17 +1103,41 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                 check_in_str = existing['check_in']
                                 can_checkout = False
                                 
-                                if check_in_str:
+                                # CEK APAKAH SUDAH CHECK OUT?
+                                if existing.get('check_out'):
+                                    await websocket.send_json({
+                                        "event": "already_done",
+                                        "name": real_name,
+                                        "id": face_id,
+                                        "message": "Anda sudah melakukan presensi pulang.",
+                                        "debug": debug_info
+                                    })
+                                    continue
+
+                                # BLOCK CHECK OUT BEFORE START TIME ATAU MIN GAP
+                                early_checkout_msg = None
+
+                                if time_now < checkout_start_val:
+                                    early_checkout_msg = f"Belum waktunya presensi pulang ({checkout_start_val})."
+
+                                can_checkout = False
+                                check_in_str = existing.get('check_in')
+
+                                if check_in_str and not early_checkout_msg:
                                     try:
                                         check_in_time = datetime.strptime(f"{today} {check_in_str}", "%Y-%m-%d %H:%M:%S")
                                         minutes_diff = (now - check_in_time).total_seconds() / 60
                                         
-                                        if minutes_diff >= min_gap_val or time_now >= presence_limit_val:
+                                        if minutes_diff >= min_gap_val:
                                             can_checkout = True
+                                        else:
+                                            early_checkout_msg = f"Anda sudah presensi masuk. Belum waktunya pulang (tunggu {int(min_gap_val - minutes_diff)} menit lagi)."
                                     except:
                                         if time_now >= presence_limit_val:
                                             can_checkout = True
-                                
+                                        else:
+                                            early_checkout_msg = "Anda sudah presensi masuk. Belum waktunya pulang."
+
                                 if can_checkout:
                                     conn.execute("UPDATE attendance SET check_out=%s, recorded_by=%s WHERE employee_id=%s AND date=%s", (time_now, gate_admin_id, face_id, today))
                                     conn.commit()
@@ -1081,11 +1150,12 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                         "debug": debug_info
                                     })
                                 else:
-                                    # Checkout prematur: Beri tahu bahwa sudah absen
+                                    # Checkout prematur atau belum waktunya pulang
                                     await websocket.send_json({
                                         "event": "already_done", 
                                         "name": real_name, 
                                         "id": face_id,
+                                        "message": early_checkout_msg or "Anda sudah presensi masuk.",
                                         "debug": debug_info
                                     })
                     finally:

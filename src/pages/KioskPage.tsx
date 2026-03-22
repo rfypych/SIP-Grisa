@@ -16,14 +16,18 @@ export default function KioskPage() {
     cooldownSeconds,
     minGapMinutes,
     presenceLimitTime,
+    checkinStartTime,
+    checkoutStartTime,
     testMode,
     fetchBackendSettings,
     updateBackendSettings
   } = useSettingsStore();
   const { token } = useAuthStore();
   const [time, setTime] = useState(new Date());
-  const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'success' | 'already-done'>('idle');
+  const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'success' | 'already-done' | 'warning'>('idle');
+  const [warningMessage, setWarningMessage] = useState('');
   const [scannedName, setScannedName] = useState('');
+  const [doneMessage, setDoneMessage] = useState('');
   const [showLocalSettings, setShowLocalSettings] = useState(false);
   const [kioskName, setKioskName] = useState(() => localStorage.getItem('sip-grisa-kiosk-name') || 'Gerbang Utama');
   const [tempCamera, setTempCamera] = useState(cameraSource);
@@ -39,6 +43,18 @@ export default function KioskPage() {
   const [localMinGap, setLocalMinGap] = useState(minGapMinutes);
   const [localPresenceHour, setLocalPresenceHour] = useState(14);
   const [localPresenceMin, setLocalPresenceMin] = useState(0);
+  const [localCheckinHour, setLocalCheckinHour] = useState(6);
+  const [localCheckinMin, setLocalCheckinMin] = useState(0);
+  const [localCheckoutHour, setLocalCheckoutHour] = useState(14);
+  const [localCheckoutMin, setLocalCheckoutMin] = useState(0);
+
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleUpdateSetting = (key: string, value: any) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(async () => {
+      if (token) await updateBackendSettings(token, { [key]: value });
+    }, 500);
+  };
   
   const webcamRef = useRef<Webcam>(null);
   const ws = useRef<WebSocket | null>(null);
@@ -78,7 +94,15 @@ export default function KioskPage() {
     const [h, m] = presenceLimitTime.split(':').map(Number);
     setLocalPresenceHour(h || 0);
     setLocalPresenceMin(m || 0);
-  }, [cooldownSeconds, minGapMinutes, presenceLimitTime]);
+
+    const [ciH, ciM] = (checkinStartTime || '06:00').split(':').map(Number);
+    setLocalCheckinHour(ciH || 0);
+    setLocalCheckinMin(ciM || 0);
+
+    const [coH, coM] = (checkoutStartTime || '14:00').split(':').map(Number);
+    setLocalCheckoutHour(coH || 0);
+    setLocalCheckoutMin(coM || 0);
+  }, [cooldownSeconds, minGapMinutes, presenceLimitTime, checkinStartTime, checkoutStartTime]);
 
   const saveLocalConfig = () => {
     setCameraSource(tempCamera);
@@ -114,8 +138,8 @@ export default function KioskPage() {
     const wsUrl = `${protocol}//${window.location.host}/ws/kiosk`;
     
     ws.current = new WebSocket(wsUrl);
-    let isProcessing = false;
-    let lastRequestTime = Date.now();
+    const isProcessingRef = useRef(false);
+    const lastRequestTimeRef = useRef(Date.now());
 
     ws.current.onopen = () => {
       if (token) {
@@ -128,7 +152,7 @@ export default function KioskPage() {
 
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      isProcessing = false;
+      isProcessingRef.current = false;
 
       if (data.event === 'success') {
         setScannedName(data.name);
@@ -149,13 +173,20 @@ export default function KioskPage() {
         }, displayDuration);
       } else if (data.event === 'already_done') {
         setScannedName(data.name);
+        setDoneMessage(data.message || 'Anda sudah melakukan presensi.');
         setScanStatus('already-done');
         
         setTimeout(() => {
           setScanStatus('scanning');
         }, 3000);
       } else if (data.event === 'searching' || data.event === 'on_cooldown') {
-        setScanStatus(prev => (prev === 'success' || prev === 'already-done') ? prev : 'scanning');
+        setScanStatus(prev => (prev === 'success' || prev === 'already-done' || prev === 'warning') ? prev : 'scanning');
+      } else if (data.event === 'early_warning') {
+        setWarningMessage(data.message);
+        setScanStatus('warning');
+        setTimeout(() => {
+          setScanStatus('scanning');
+        }, 4000);
       }
 
       if (data.debug) {
@@ -165,13 +196,13 @@ export default function KioskPage() {
 
     const sendLoop = setInterval(() => {
       // Safety guard: if stuck isProcessing for more than 5s, reset it
-      if (isProcessing && Date.now() - lastRequestTime > 5000) {
-        isProcessing = false;
+      if (isProcessingRef.current && Date.now() - lastRequestTimeRef.current > 5000) {
+        isProcessingRef.current = false;
       }
 
-      if (!isProcessing) {
-        isProcessing = true;
-        lastRequestTime = Date.now();
+      if (!isProcessingRef.current) {
+        isProcessingRef.current = true;
+        lastRequestTimeRef.current = Date.now();
         captureAndSend();
       }
     }, testMode ? 400 : 1000);
@@ -572,9 +603,10 @@ export default function KioskPage() {
                       </div>
                       <input 
                         type="range" min="0" max="300" step="5" value={localCooldown} 
-                        onChange={(e) => setLocalCooldown(parseInt(e.target.value))}
-                        onMouseUp={async () => {
-                           if (token) await updateBackendSettings(token, { cooldown_seconds: localCooldown });
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setLocalCooldown(val);
+                          handleUpdateSetting('cooldown_seconds', val);
                         }}
                         className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
                       />
@@ -588,12 +620,81 @@ export default function KioskPage() {
                       </div>
                       <input 
                         type="range" min="0" max="240" step="10" value={localMinGap} 
-                        onChange={(e) => setLocalMinGap(parseInt(e.target.value))}
-                        onMouseUp={async () => {
-                           if (token) await updateBackendSettings(token, { min_gap_minutes: localMinGap });
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setLocalMinGap(val);
+                          handleUpdateSetting('min_gap_minutes', val);
                         }}
                         className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                       />
+                   </div>
+
+                   {/* Check-in Start Sliders */}
+                   <div className="space-y-2 pt-1 border-t border-slate-700/50">
+                      <div className="flex justify-between text-[10px] font-mono mb-1">
+                         <span className="text-slate-400">Jam Mulai Masuk</span>
+                         <span className="text-blue-400 font-bold">{localCheckinHour.toString().padStart(2, '0')}:{localCheckinMin.toString().padStart(2, '0')}</span>
+                      </div>
+                      <div className="flex gap-4">
+                         <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-slate-500 uppercase font-black">Jam</span>
+                            <input
+                              type="range" min="0" max="23" value={localCheckinHour}
+                              onChange={(e) => {
+                                 const val = parseInt(e.target.value);
+                                 setLocalCheckinHour(val);
+                                 handleUpdateSetting('checkin_start_time', `${val.toString().padStart(2, '0')}:${localCheckinMin.toString().padStart(2, '0')}`);
+                              }}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            />
+                         </div>
+                         <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-slate-500 uppercase font-black">Min</span>
+                            <input
+                              type="range" min="0" max="59" step="5" value={localCheckinMin}
+                              onChange={(e) => {
+                                 const val = parseInt(e.target.value);
+                                 setLocalCheckinMin(val);
+                                 handleUpdateSetting('checkin_start_time', `${localCheckinHour.toString().padStart(2, '0')}:${val.toString().padStart(2, '0')}`);
+                              }}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            />
+                         </div>
+                      </div>
+                   </div>
+
+                   {/* Check-out Start Sliders */}
+                   <div className="space-y-2 pt-1 border-t border-slate-700/50">
+                      <div className="flex justify-between text-[10px] font-mono mb-1">
+                         <span className="text-slate-400">Jam Mulai Pulang</span>
+                         <span className="text-emerald-400 font-bold">{localCheckoutHour.toString().padStart(2, '0')}:{localCheckoutMin.toString().padStart(2, '0')}</span>
+                      </div>
+                      <div className="flex gap-4">
+                         <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-slate-500 uppercase font-black">Jam</span>
+                            <input
+                              type="range" min="0" max="23" value={localCheckoutHour}
+                              onChange={(e) => {
+                                 const val = parseInt(e.target.value);
+                                 setLocalCheckoutHour(val);
+                                 handleUpdateSetting('checkout_start_time', `${val.toString().padStart(2, '0')}:${localCheckoutMin.toString().padStart(2, '0')}`);
+                              }}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                         </div>
+                         <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-slate-500 uppercase font-black">Min</span>
+                            <input
+                              type="range" min="0" max="59" step="5" value={localCheckoutMin}
+                              onChange={(e) => {
+                                 const val = parseInt(e.target.value);
+                                 setLocalCheckoutMin(val);
+                                 handleUpdateSetting('checkout_start_time', `${localCheckoutHour.toString().padStart(2, '0')}:${val.toString().padStart(2, '0')}`);
+                              }}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                         </div>
+                      </div>
                    </div>
 
                    {/* Boundary Time Sliders */}
@@ -607,9 +708,10 @@ export default function KioskPage() {
                             <span className="text-[8px] text-slate-500 uppercase font-black">Jam</span>
                             <input 
                               type="range" min="0" max="23" value={localPresenceHour} 
-                              onChange={(e) => setLocalPresenceHour(parseInt(e.target.value))}
-                              onMouseUp={async () => {
-                                 if (token) await updateBackendSettings(token, { presence_limit_time: `${localPresenceHour.toString().padStart(2, '0')}:${localPresenceMin.toString().padStart(2, '0')}` });
+                              onChange={(e) => {
+                                 const val = parseInt(e.target.value);
+                                 setLocalPresenceHour(val);
+                                 handleUpdateSetting('presence_limit_time', `${val.toString().padStart(2, '0')}:${localPresenceMin.toString().padStart(2, '0')}`);
                               }}
                               className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
                             />
@@ -618,9 +720,10 @@ export default function KioskPage() {
                             <span className="text-[8px] text-slate-500 uppercase font-black">Min</span>
                             <input 
                               type="range" min="0" max="59" step="5" value={localPresenceMin} 
-                              onChange={(e) => setLocalPresenceMin(parseInt(e.target.value))}
-                              onMouseUp={async () => {
-                                 if (token) await updateBackendSettings(token, { presence_limit_time: `${localPresenceHour.toString().padStart(2, '0')}:${localPresenceMin.toString().padStart(2, '0')}` });
+                              onChange={(e) => {
+                                 const val = parseInt(e.target.value);
+                                 setLocalPresenceMin(val);
+                                 handleUpdateSetting('presence_limit_time', `${localPresenceHour.toString().padStart(2, '0')}:${val.toString().padStart(2, '0')}`);
                               }}
                               className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
                             />
@@ -633,7 +736,13 @@ export default function KioskPage() {
              <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700/30 space-y-4">
                 <div className="flex justify-between items-center">
                    <span className="text-[10px] font-bold uppercase text-slate-400">Status</span>
-                   <Badge className={scanStatus === 'success' ? 'bg-emerald-500' : 'bg-slate-700'}>{scanStatus}</Badge>
+                   <Badge className={
+                      scanStatus === 'success' ? 'bg-emerald-500' :
+                      scanStatus === 'warning' ? 'bg-amber-500 text-amber-950 font-black' :
+                      'bg-slate-700'
+                   }>
+                      {scanStatus}
+                   </Badge>
                 </div>
                 
                 {debugData && (
@@ -652,6 +761,14 @@ export default function KioskPage() {
                     </div>
 
                     <div className="pt-2 border-t border-slate-700/50 space-y-2">
+                       <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase text-slate-400">Mulai Masuk</span>
+                          <span className="font-mono text-xs text-blue-400 font-bold">{checkinStartTime}</span>
+                       </div>
+                       <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase text-slate-400">Mulai Pulang</span>
+                          <span className="font-mono text-xs text-emerald-400 font-bold">{checkoutStartTime}</span>
+                       </div>
                        <div className="flex justify-between items-center">
                           <span className="text-[10px] font-bold uppercase text-slate-400">Boundary (Limit)</span>
                           <span className="font-mono text-xs text-rose-400 font-bold">{presenceLimitTime}</span>
