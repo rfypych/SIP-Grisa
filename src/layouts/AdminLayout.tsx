@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
-import { LayoutDashboard, CalendarDays, Users, LogOut, ScanFace, Menu, X, Settings, UserCog, ShieldCheck, Calendar, History, ClipboardList, BookOpen } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Users, LogOut, ScanFace, Menu, X, Settings, UserCog, ShieldCheck, Calendar, History, ClipboardList, BookOpen, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
 
@@ -20,6 +20,7 @@ export default function AdminLayout() {
     { path: '/admin/users', icon: UserCog, label: 'Manajemen Admin', roles: ['superadmin'] },
     { path: '/admin/pengaturan', icon: Settings, label: 'Pengaturan', roles: ['superadmin', 'admin'] },
     { path: '/admin/docs', icon: BookOpen, label: 'Dokumentasi', roles: ['superadmin'] },
+    { path: '/admin/recovery', icon: Sparkles, label: 'Pendeteksi Absen', roles: ['superadmin', 'admin'] },
   ].filter(item => user?.role && item.roles.includes(user.role as any));
 
   useEffect(() => {

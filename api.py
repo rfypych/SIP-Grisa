@@ -12,6 +12,12 @@ import shutil
 import asyncio
 import uuid
 import json
+from google import genai
+from dotenv import load_dotenv
+from PIL import Image
+import io
+
+load_dotenv()
 
 # JWT Configuration
 SECRET_KEY = "grisa-presence-super-secret-key-2026-xyz" # Sebaiknya di .env
@@ -40,6 +46,9 @@ class SystemSettings(BaseModel):
     export_signature_name: str
     export_signature_role: str
     alpha_limit_time: str
+    presence_limit_time: str
+    google_api_key: Optional[str] = None
+    test_mode: Optional[int] = 0
 
 class FaceCropRequest(BaseModel):
     image: str
@@ -58,6 +67,18 @@ class Holiday(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class AIProcessRequest(BaseModel):
+    image: str # Base64 string
+
+class AIAttendanceItem(BaseModel):
+    name: str
+    date: str
+    status: str # hadir, sakit, izin, dlibur, dinas, alfa
+    time: Optional[str] = None # HH:MM
+
+class AICommitRequest(BaseModel):
+    items: List[AIAttendanceItem]
 
 class TokenData(BaseModel):
     username: Optional[str] = None
@@ -287,6 +308,7 @@ async def enroll_new_face(
     
     success_count = 0
     errors = []
+    temp_file_path = None
     
     try:
         for file in files:
@@ -305,10 +327,12 @@ async def enroll_new_face(
                 # Overwrite foto lama dengan yang terbaru
                 shutil.copy2(temp_file_path, final_file_path)
                 
-            os.remove(temp_file_path) # Bersihkan temp
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path) # Bersihkan temp
+            temp_file_path = None
 
         if success_count > 0:
-            # Upsert biodata pegawai di Database (SQLite)
+            # Upsert biodata pegawai di Database
             conn = database.get_db_connection()
             try:
                 # Cek apakah id sudah ada
@@ -326,10 +350,14 @@ async def enroll_new_face(
                 conn.commit()
             finally:
                 conn.close()
-        raise
+            
+            return {"status": "success", "message": f"Berhasil mendaftarkan {success_count} foto untuk {name}"}
+        else:
+            raise Exception("Gagal mengenali wajah dalam foto yang diunggah.")
+            
     except Exception as outer_e:
         print(f"[CRITICAL ERROR] enroll_new_face crashed: {outer_e}")
-        if os.path.exists(temp_file_path):
+        if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
         raise HTTPException(status_code=500, detail=str(outer_e))
 
@@ -456,7 +484,7 @@ async def get_live_reports(month: int, year: int, current_user: AdminUser = Depe
                             # Jika hari ini, cek apakah sudah lewat jam batas alpha
                             try:
                                 # Parsing jam alpha (format HH:MM)
-                                h, min_part = map(int, alpha_limit_str.split(':')[:2])
+                                h, min_part = map(int, presence_limit_str.split(':')[:2])
                                 alpha_time_today = now.replace(hour=h, minute=min_part, second=0, microsecond=0)
                                 if now > alpha_time_today:
                                     should_show_alfa = True
@@ -575,23 +603,31 @@ async def get_system_settings(current_user: AdminUser = Depends(get_kiosk)):
         conn.close()
 
 @app.post("/api/settings")
-async def update_system_settings(settings: SystemSettings, request: Request, current_user: AdminUser = Depends(get_admin)):
+async def update_settings(settings: SystemSettings, request: Request, current_user: AdminUser = Depends(get_current_user)):
     conn = database.get_db_connection()
     try:
+        settings_dict = settings.dict()
+        print(f"DEBUG: Updating settings: {settings_dict}")
+        
+        # Check if cooldown_seconds is being updated and broadcast if so
+        if "cooldown_seconds" in settings_dict:
+            await manager.broadcast({"event": "SETTINGS_UPDATE", "setting": "cooldown_seconds", "value": settings.cooldown_seconds})
+            print(f"DEBUG: Broadcasted cooldown_seconds update: {settings.cooldown_seconds}")
+
         conn.execute(
             """
             UPDATE system_settings SET 
             cooldown_seconds=%s, min_gap_minutes=%s, checkout_start_hour=%s, program_start_date=%s, 
             success_sound_url=%s, success_sound_enabled=%s,
             export_location=%s, export_signature_enabled=%s, export_signature_name=%s, export_signature_role=%s,
-            alpha_limit_time=%s
+            alpha_limit_time=%s, presence_limit_time=%s, google_api_key=%s, test_mode=%s
             WHERE id=1
             """,
             (
                 settings.cooldown_seconds, settings.min_gap_minutes, settings.checkout_start_hour, settings.program_start_date, 
                 settings.success_sound_url, 1 if settings.success_sound_enabled else 0,
                 settings.export_location, 1 if settings.export_signature_enabled else 0, settings.export_signature_name, settings.export_signature_role,
-                settings.alpha_limit_time
+                settings.alpha_limit_time, settings.presence_limit_time, settings.google_api_key, settings.test_mode
             )
         )
         conn.commit()
@@ -730,6 +766,134 @@ async def get_dashboard_stats(current_user: AdminUser = Depends(get_admin)):
     finally:
         conn.close()
 
+# --- AI ASSISTANT ENDPOINTS (Gemini Vision) ---
+
+@app.post("/api/ai/process_attendance")
+async def process_ai_attendance(request: AIProcessRequest, current_user: AdminUser = Depends(get_admin)):
+    try:
+        # 1. Setup Gemini Client - Priority: Database -> .env
+        conn = database.get_db_connection()
+        settings = conn.execute("SELECT google_api_key FROM system_settings WHERE id=1").fetchone()
+        conn.close()
+        
+        api_key = settings['google_api_key'] if settings and settings['google_api_key'] else os.getenv("GEMINI_API_KEY")
+        
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Gemini API Key tidak ditemukan. Silakan setel di Pengaturan.")
+            
+        client = genai.Client(api_key=api_key)
+        
+        # 2. Decode Base64 Image
+        header, encoded = request.image.split(",", 1)
+        image_data = base64.b64decode(encoded)
+        image_pil = Image.open(io.BytesIO(image_data))
+        
+        # 3. Prompt Strategis
+        prompt = """
+        Analyze this photo of a manual attendance sheet. 
+        Extract a list of attendance records in JSON format.
+        
+        Rules:
+        1. Identify the 'Name' or 'Nama' of each person.
+        2. Identify the 'Date' (format it as YYYY-MM-DD). If year/month is missing, use current year/month.
+        3. Identify the 'Status' (map it to: 'hadir', 'sakit', 'izin', or 'alfa').
+        4. Extract the 'Time' (Clock-in time) if available in format HH:MM.
+        
+        Output format:
+        [
+          {"name": "Budi Santoso", "date": "2026-03-21", "status": "hadir", "time": "07:15"},
+          ...
+        ]
+        Only return the JSON array string.
+        """
+        
+        # 4. Call Gemini
+        # Menggunakan gemini-flash-latest karena sudah terverifikasi sukses di test
+        response = client.models.generate_content(
+            model="gemini-flash-latest", 
+            contents=[prompt, image_pil]
+        )
+        
+        # 5. Parse Response
+        try:
+            # Clean response text (remove ```json ... ```)
+            clean_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+            parsed_data = json.loads(clean_text)
+            return {"status": "success", "data": parsed_data}
+        except Exception as parse_e:
+            print(f"[AI PARSE ERROR] {parse_e}\nRaw Output: {response.text}")
+            return {"status": "partial_success", "raw_text": response.text, "message": "Gagal parsing JSON otomatis."}
+            
+    except Exception as e:
+        print(f"[AI ERROR] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ai/commit_attendance")
+async def commit_ai_attendance(data: AICommitRequest, request: Request, current_user: AdminUser = Depends(get_admin)):
+    conn = database.get_db_connection()
+    success_count = 0
+    errors = []
+    
+    try:
+        for item in data.items:
+            # 1. Cari employee_id berdasarkan nama (pencarian fuzzy ringan atau exact)
+            emp = conn.execute("SELECT id FROM employees WHERE name LIKE %s", (f"%{item.name}%",)).fetchone()
+            
+            if not emp:
+                errors.append(f"Pegawai '{item.name}' tidak ditemukan di database.")
+                continue
+            
+            emp_id = emp['id']
+            
+            # 2. Update/Insert ke attendance
+            existing = conn.execute(
+                "SELECT id FROM attendance WHERE employee_id=%s AND date=%s", 
+                (emp_id, item.date)
+            ).fetchone()
+            
+            if existing:
+                conn.execute(
+                    "UPDATE attendance SET status=%s, check_in=%s WHERE employee_id=%s AND date=%s" ,
+                    (item.status, item.time, emp_id, item.date)
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO attendance (employee_id, date, status, check_in) VALUES (%s, %s, %s, %s)",
+                    (emp_id, item.date, item.status, item.time)
+                )
+            success_count += 1
+            
+        conn.commit()
+        
+        # Simpan rincian perubahan ke log sistem dalam format yang bisa dilihat nanti
+        log_details = {
+            "summary": f"Proses otomatis {success_count} data kehadiran",
+            "items": [
+                {"nama": item.name, "tanggal": item.date, "status": item.status} 
+                for item in data.items
+            ],
+            "errors": errors
+        }
+        
+        await log_system_action(
+            current_user.id, 
+            "AI_AUTOMATION", 
+            json.dumps(log_details), 
+            request
+        )
+        
+        return {
+            "status": "success", 
+            "message": f"Berhasil memproses {success_count} data.",
+            "errors": errors
+        }
+        
+    except Exception as e:
+        print(f"[AI COMMIT ERROR] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 import base64
 import cv2
 import numpy as np
@@ -783,7 +947,25 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                     pass
                 continue
 
+            # Mendukung pesan 'reset_attendance' di Test Mode
+            if data.get("type") == "reset_attendance":
+                conn = database.get_db_connection()
+                try:
+                    sys_settings = conn.execute("SELECT test_mode FROM system_settings WHERE id=1").fetchone()
+                    if sys_settings and sys_settings['test_mode']:
+                        target_id = data.get("face_id")
+                        today = datetime.now().strftime("%Y-%m-%d")
+                        conn.execute("DELETE FROM attendance WHERE employee_id=%s AND date=%s", (target_id, today))
+                        conn.commit()
+                        if target_id in kiosk_cooldowns:
+                            del kiosk_cooldowns[target_id]
+                        await websocket.send_json({"event": "searching", "message": f"Data hari ini untuk {target_id} telah di-reset (Test Mode)"})
+                finally:
+                    conn.close()
+                continue
+
             if data.get("type") == "frame":
+                # print(f"DEBUG: Received frame from {data.get('kiosk_name')}")
                 payload = data.get("image")
                 # Decode base64 ke OpenCV frame
                 encoded_data = payload.split(',')[1]
@@ -791,12 +973,22 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 
                 # Gunakan face_system untuk mendeteksi
-                name, face_id = face_system.recognize_single_frame(frame)
-                
+                name, face_id, confidence = face_system.recognize_single_frame(frame, return_confidence=True)
                 if face_id and face_id != "Unknown":
-                    now = datetime.now()
+                    print(f"DEBUG: Detected {name} ({face_id}) with confidence {confidence}%")
                     conn = database.get_db_connection()
                     try:
+                        # Ambil Pengaturan Sistem dari DB untuk logika presensi
+                        sys_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
+                        test_enabled = sys_settings['test_mode'] if sys_settings else 0
+                        
+                        now = datetime.now()
+                        # Dukungan Simulasi Waktu di Test Mode
+                        if test_enabled and data.get("simulate_time"):
+                            try:
+                                now = datetime.strptime(data.get("simulate_time"), "%Y-%m-%d %H:%M:%S")
+                            except:
+                                pass
                         # Ambil Nama Asli dari Database
                         emp_data = conn.execute("SELECT name FROM employees WHERE id=%s", (face_id,)).fetchone()
                         real_name = emp_data['name'] if emp_data else face_id
@@ -805,30 +997,47 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                         sys_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
                         cooldown_val = sys_settings['cooldown_seconds'] if sys_settings else 60
                         min_gap_val = sys_settings['min_gap_minutes'] if sys_settings else 60
-                        checkout_hour_val = sys_settings['checkout_start_hour'] if sys_settings else 11
-                        alpha_time_val = sys_settings['alpha_limit_time'] if sys_settings else '07:30'
+                        presence_limit_val = sys_settings['presence_limit_time'] if sys_settings else '14:00'
                         
-                        # 1. CEK COOLDOWN
+                        # print(f"DEBUG: Logic using cooldown={cooldown_val}, min_gap={min_gap_val}, limit={presence_limit_val}")
+                        
+                        today = now.strftime("%Y-%m-%d")
+                        time_now = now.strftime("%H:%M:%S")
+                        
+                        existing = conn.execute("SELECT * FROM attendance WHERE employee_id=%s AND date=%s", (face_id, today)).fetchone()
+                        
                         last_seen = kiosk_cooldowns.get(face_id)
-                        if last_seen and (now - last_seen).total_seconds() < cooldown_val:
+                        remains = cooldown_val - (now - last_seen).total_seconds() if last_seen else 0
+                        
+                        debug_info = {
+                            "confidence": confidence,
+                            "cooldown_remains": round(max(0, remains), 1),
+                            "test_mode": test_enabled,
+                            "simulated": "simulate_time" in data,
+                            "last_check_in": existing['check_in'] if existing else None,
+                            "last_check_out": existing['check_out'] if existing else None,
+                            "current_logic_time": time_now,
+                            "face_id": face_id
+                        }
+
+                        if cooldown_val > 0 and last_seen and remains > 0:
                             # Kirim info cooldown agar frontend tau proses selesai tapi diabaikan
-                            await websocket.send_json({"event": "on_cooldown", "face_id": face_id})
+                            await websocket.send_json({"event": "on_cooldown", "face_id": face_id, "debug": debug_info})
                         else:
                             # Update cooldown
                             kiosk_cooldowns[face_id] = now
                             
-                            today = now.strftime("%Y-%m-%d")
-                            time_now = now.strftime("%H:%M:%S")
-                            
-                            existing = conn.execute("SELECT * FROM attendance WHERE employee_id=%s AND date=%s", (face_id, today)).fetchone()
-                            
                             # JANGAN PROSES jika sudah ada status khusus (Sakit/Izin/Dinas)
                             if existing and existing['status'].lower() in ['sakit', 'izin', 'dinas']:
-                                await websocket.send_json({"event": "searching", "message": f"{real_name} berstatus {existing['status']}"})
+                                await websocket.send_json({
+                                    "event": "searching", 
+                                    "message": f"{real_name} berstatus {existing['status']}",
+                                    "debug": debug_info
+                                })
                             elif not existing:
                                 # Tentukan status berdasarkan jam alpha
                                 status = "hadir"
-                                if time_now > alpha_time_val:
+                                if time_now > presence_limit_val:
                                     status = "alfa"
                                     
                                 # CHECK IN (JAM MASUK)
@@ -836,7 +1045,14 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                              (face_id, today, time_now, status, gate_admin_id))
                                 conn.commit()
                                 await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkin", "status": status})
-                                await websocket.send_json({"event": "success", "name": real_name, "id": face_id, "type": "checkin", "status": status})
+                                await websocket.send_json({
+                                    "event": "success", 
+                                    "name": real_name, 
+                                    "id": face_id, 
+                                    "type": "checkin", 
+                                    "status": status,
+                                    "debug": debug_info
+                                })
                             else:
                                 # LOGIKA PINTAR CHECK OUT (JAM PULANG)
                                 check_in_str = existing['check_in']
@@ -847,20 +1063,31 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                         check_in_time = datetime.strptime(f"{today} {check_in_str}", "%Y-%m-%d %H:%M:%S")
                                         minutes_diff = (now - check_in_time).total_seconds() / 60
                                         
-                                        if minutes_diff >= min_gap_val or now.hour >= checkout_hour_val:
+                                        if minutes_diff >= min_gap_val or time_now >= presence_limit_val:
                                             can_checkout = True
                                     except:
-                                        if now.hour >= checkout_hour_val:
+                                        if time_now >= presence_limit_val:
                                             can_checkout = True
                                 
                                 if can_checkout:
                                     conn.execute("UPDATE attendance SET check_out=%s, recorded_by=%s WHERE employee_id=%s AND date=%s", (time_now, gate_admin_id, face_id, today))
                                     conn.commit()
                                     await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkout"})
-                                    await websocket.send_json({"event": "success", "name": real_name, "id": face_id, "type": "checkout"})
+                                    await websocket.send_json({
+                                        "event": "success", 
+                                        "name": real_name, 
+                                        "id": face_id, 
+                                        "type": "checkout",
+                                        "debug": debug_info
+                                    })
                                 else:
                                     # Checkout prematur: Beri tahu bahwa sudah absen
-                                    await websocket.send_json({"event": "already_done", "name": real_name, "id": face_id})
+                                    await websocket.send_json({
+                                        "event": "already_done", 
+                                        "name": real_name, 
+                                        "id": face_id,
+                                        "debug": debug_info
+                                    })
                     finally:
                         conn.close()
                 else:

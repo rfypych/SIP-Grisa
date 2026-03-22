@@ -11,6 +11,7 @@ import LogKehadiranPage from './pages/admin/LogKehadiranPage';
 import LoginPage from './pages/auth/LoginPage';
 import DocumentationPage from './pages/admin/DocumentationPage';
 import KioskPage from './pages/KioskPage';
+import AIRecoveryPage from './pages/admin/AIRecoveryPage';
 import { Toaster } from './components/ui/sonner';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 
@@ -56,6 +57,11 @@ export default function App() {
           <Route path="docs" element={
             <ProtectedRoute allowedRoles={['superadmin']}>
               <DocumentationPage />
+            </ProtectedRoute>
+          } />
+          <Route path="recovery" element={
+            <ProtectedRoute allowedRoles={['superadmin', 'admin']}>
+              <AIRecoveryPage />
             </ProtectedRoute>
           } />
         </Route>

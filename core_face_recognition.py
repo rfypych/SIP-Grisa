@@ -141,10 +141,10 @@ class FaceAttendanceSystem:
             print(f"[ERROR] Failed to remove face: {e}")
             return False
 
-    def recognize_single_frame(self, frame):
+    def recognize_single_frame(self, frame, return_confidence=False):
         """Mengenali wajah pada satu frame gambar (untuk API WebSocket)"""
         if not self.known_face_encodings:
-            return "No Data", None
+            return ("No Data", None, 0) if return_confidence else ("No Data", None)
 
         # Perkecil frame sedikit untuk performa, tapi jangan terlalu kecil agar akurat (0.5x)
         small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
@@ -154,35 +154,35 @@ class FaceAttendanceSystem:
         face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
         if not face_encodings:
-            return None, None
+            return (None, None, 0) if return_confidence else (None, None)
 
         for face_encoding in face_encodings:
-            matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=self.config["tolerance"])
+            tolerance = self.config["tolerance"]
+            matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=tolerance)
             name = "Unknown"
             face_id = "Unknown"
+            confidence = 0
 
             face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
             best_match_index = np.argmin(face_distances)
             
+            # Hitung confidence score sederhana (0-100%)
+            dist = face_distances[best_match_index]
+            confidence = max(0, min(100, (1 - (dist / (tolerance * 1.5))) * 100))
+
             if matches[best_match_index]:
                 face_id = self.known_face_names[best_match_index]
                 name = face_id 
-                print(f"[KIOSK] Terdeteksi: {name} (dist: {face_distances[best_match_index]:.2f})")
+                print(f"[KIOSK] Terdeteksi: {name} (dist: {dist:.2f}, conf: {confidence:.1f}%)")
 
+            if return_confidence:
+                return name, face_id, round(confidence, 2)
             return name, face_id
             
-        return None, None
-        camera_source = self.config.get("camera_source", 0)
-        tolerance = self.config.get("tolerance", 0.6)
-        
-        print(f"[INFO] Membuka kamera dari sumber: {camera_source}")
-        video_capture = cv2.VideoCapture(camera_source)
-        
-        if not video_capture.isOpened():
-            print("[ERROR] Tidak dapat membuka kamera.")
-            return
+        return (None, None, 0) if return_confidence else (None, None)
 
-        print("[INFO] Memulai Face Recognition Stream (Tekan 'q' untuk keluar)...")
+    def start_recognition_stream(self):
+        """Metode standalone untuk testing sistem via terminal (menggunakan jendela OpenCV)"""
 
         # Inisialisasi variabel untuk optimasi (frame skipping)
         process_this_frame = True

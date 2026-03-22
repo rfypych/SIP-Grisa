@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ScanFace, CheckCircle2, Clock, Calendar, Settings, Camera, Save, X } from 'lucide-react';
+import { ScanFace, CheckCircle2, Clock, Calendar, Settings, Camera, Save, X, Zap, PartyPopper } from 'lucide-react';
+import { Badge } from '../components/ui/badge';
 import { Link } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -13,7 +14,11 @@ export default function KioskPage() {
     successSoundUrl, 
     successSoundEnabled,
     cooldownSeconds,
-    fetchBackendSettings 
+    minGapMinutes,
+    presenceLimitTime,
+    testMode,
+    fetchBackendSettings,
+    updateBackendSettings
   } = useSettingsStore();
   const { token } = useAuthStore();
   const [time, setTime] = useState(new Date());
@@ -23,6 +28,17 @@ export default function KioskPage() {
   const [kioskName, setKioskName] = useState(() => localStorage.getItem('sip-grisa-kiosk-name') || 'Gerbang Utama');
   const [tempCamera, setTempCamera] = useState(cameraSource);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [debugData, setDebugData] = useState<any>(null);
+  const [simulatedTime, setSimulatedTime] = useState('');
+  const [simHour, setSimHour] = useState(7);
+  const [simMin, setSimMin] = useState(0);
+  const [useSimTime, setUseSimTime] = useState(false);
+
+  // Local states for sliders to make them smooth
+  const [localCooldown, setLocalCooldown] = useState(cooldownSeconds);
+  const [localMinGap, setLocalMinGap] = useState(minGapMinutes);
+  const [localPresenceHour, setLocalPresenceHour] = useState(14);
+  const [localPresenceMin, setLocalPresenceMin] = useState(0);
   
   const webcamRef = useRef<Webcam>(null);
   const ws = useRef<WebSocket | null>(null);
@@ -45,6 +61,25 @@ export default function KioskPage() {
     return () => clearInterval(timer);
   }, [token, fetchBackendSettings]);
 
+  useEffect(() => {
+    if (useSimTime) {
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0];
+      setSimulatedTime(`${dateStr} ${simHour.toString().padStart(2, '0')}:${simMin.toString().padStart(2, '0')}:00`);
+    } else {
+      setSimulatedTime('');
+    }
+  }, [simHour, simMin, useSimTime]);
+
+  // Sync local sliders with store (initial/fetch)
+  useEffect(() => {
+    setLocalCooldown(cooldownSeconds);
+    setLocalMinGap(minGapMinutes);
+    const [h, m] = presenceLimitTime.split(':').map(Number);
+    setLocalPresenceHour(h || 0);
+    setLocalPresenceMin(m || 0);
+  }, [cooldownSeconds, minGapMinutes, presenceLimitTime]);
+
   const saveLocalConfig = () => {
     setCameraSource(tempCamera);
     localStorage.setItem('sip-grisa-kiosk-name', kioskName);
@@ -53,11 +88,34 @@ export default function KioskPage() {
   };
 
   // WebSocket Connection & Frame Capture (Optimized Request-Response)
+  const simulatedTimeRef = useRef<string | null>(null);
+  useEffect(() => {
+    simulatedTimeRef.current = simulatedTime;
+  }, [simulatedTime]);
+
+  const captureAndSend = () => {
+    if (!webcamRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) return;
+    
+    // We can use a ref or local closure here, but since it's an interval 
+    // we use the ref to always get the latest simulated time.
+    const imageSrc = webcamRef.current.getScreenshot();
+    if (imageSrc) {
+       ws.current.send(JSON.stringify({
+          type: 'frame',
+          image: imageSrc,
+          simulate_time: simulatedTimeRef.current,
+          kiosk_name: kioskName
+       }));
+    }
+  };
+
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/kiosk`;
     
     ws.current = new WebSocket(wsUrl);
+    let isProcessing = false;
+    let lastRequestTime = Date.now();
 
     ws.current.onopen = () => {
       if (token) {
@@ -65,21 +123,6 @@ export default function KioskPage() {
           type: 'auth',
           token: token
         }));
-      }
-    };
-
-    let isProcessing = false;
-
-    const captureAndSend = () => {
-      if (ws.current?.readyState === WebSocket.OPEN && webcamRef.current && !isProcessing) {
-        const imageSrc = webcamRef.current.getScreenshot();
-        if (imageSrc) {
-          isProcessing = true;
-          ws.current.send(JSON.stringify({
-            type: 'frame',
-            image: imageSrc
-          }));
-        }
       }
     };
 
@@ -98,8 +141,7 @@ export default function KioskPage() {
           audio.play().catch(e => console.error("Auto-play prevented:", e));
         }
 
-        // Durasi tampilan sukses: gunakan durasi tetap singkat (3 detik) agar kios siap untuk orang berikutnya.
-        // Cooldown tetap berjalan di backend untuk mencegah dobel absen orang yg sama.
+        // Durasi tampilan sukses
         const displayDuration = 3000; 
         
         setTimeout(() => {
@@ -113,18 +155,32 @@ export default function KioskPage() {
           setScanStatus('scanning');
         }, 3000);
       } else if (data.event === 'searching' || data.event === 'on_cooldown') {
-        // Hanya set scanning jika tidak sedang menampilkan modal sukses
         setScanStatus(prev => (prev === 'success' || prev === 'already-done') ? prev : 'scanning');
+      }
+
+      if (data.debug) {
+        setDebugData(data.debug);
       }
     };
 
-    const sendLoop = setInterval(captureAndSend, 1000);
+    const sendLoop = setInterval(() => {
+      // Safety guard: if stuck isProcessing for more than 5s, reset it
+      if (isProcessing && Date.now() - lastRequestTime > 5000) {
+        isProcessing = false;
+      }
+
+      if (!isProcessing) {
+        isProcessing = true;
+        lastRequestTime = Date.now();
+        captureAndSend();
+      }
+    }, testMode ? 400 : 1000);
 
     return () => {
       clearInterval(sendLoop);
       ws.current?.close();
     };
-  }, []);
+  }, [testMode, token, successSoundEnabled, successSoundUrl, kioskName]); 
 
   const formattedTime = time.toLocaleTimeString('id-ID', {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -296,41 +352,64 @@ export default function KioskPage() {
         )}
       </AnimatePresence>
 
-      {/* Already Done Modal - Blue/Amber Theme */}
+      {/* Already Done Modal - Celebration Theme */}
       <AnimatePresence>
         {scanStatus === 'already-done' && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-blue-500/20 backdrop-blur-3xl p-6"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-emerald-500/10 backdrop-blur-3xl p-6"
           >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="bg-white rounded-[4rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.1)] p-16 flex flex-col items-center max-w-2xl w-full border border-white"
-            >
+            {/* Confetti-like floating particles */}
+            {[...Array(12)].map((_, i) => (
               <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", damping: 10, stiffness: 100 }}
-                className="w-32 h-32 bg-blue-500 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-blue-200"
+                key={i}
+                initial={{ opacity: 0, scale: 0, x: 0, y: 0 }}
+                animate={{ 
+                  opacity: [0, 1, 0], 
+                  scale: [0, 1.5, 0.5],
+                  x: (i % 2 === 0 ? 1 : -1) * (Math.random() * 300 + 100),
+                  y: (i % 3 === 0 ? 1 : -1) * (Math.random() * 300 + 100),
+                }}
+                transition={{ duration: 3, repeat: Infinity, delay: i * 0.2 }}
+                className={`absolute w-3 h-3 rounded-full ${i % 3 === 0 ? 'bg-amber-400' : i % 3 === 1 ? 'bg-emerald-400' : 'bg-blue-400'}`}
+              />
+            ))}
+
+            <motion.div
+              initial={{ scale: 0.9, y: 30, rotate: -2 }}
+              animate={{ scale: 1, y: 0, rotate: 0 }}
+              className="bg-white rounded-[4rem] shadow-[0_50px_100px_-20px_rgba(16,185,129,0.2)] p-16 flex flex-col items-center max-w-2xl w-full border border-white relative overflow-hidden"
+            >
+              {/* Decorative Background Glow */}
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-100 rounded-full blur-3xl opacity-50" />
+              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-amber-100 rounded-full blur-3xl opacity-50" />
+
+              <motion.div
+                initial={{ scale: 0, rotate: -45 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", damping: 12, stiffness: 200, delay: 0.2 }}
+                className="w-32 h-32 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-2xl shadow-emerald-200 relative z-10"
               >
-                <Clock className="w-16 h-16 text-white" />
+                <PartyPopper className="w-16 h-16 text-white" />
               </motion.div>
 
-              <p className="text-blue-500 text-sm font-black uppercase tracking-[0.4em] mb-4">Sudah Presensi</p>
+              <p className="text-emerald-600 text-sm font-black uppercase tracking-[0.4em] mb-4 relative z-10">Sudah Absensi</p>
               
-              <div className="text-center mb-12">
-                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Terima Kasih,</span>
-                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">
+              <div className="text-center mb-12 relative z-10">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Mantap,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight leading-tight">
                    {scannedName}
                 </h3>
-                <p className="text-slate-500 mt-4 font-bold text-lg">Bapak/Ibu sudah melakukan presensi hari ini.</p>
+                <p className="text-slate-500 mt-6 font-bold text-lg max-w-sm mx-auto">
+                  Anda sudah melakukan absensi hari ini. 
+                  <span className="text-emerald-500 block">Terima kasih atas kedisiplinannya!</span>
+                </p>
               </div>
 
-              <div className="flex items-center gap-6 bg-slate-50 px-10 py-5 rounded-[2rem] border border-slate-100">
-                 <span className="text-blue-600 font-black text-xs uppercase tracking-widest">Semangat Beraktivitas!</span>
+              <div className="flex items-center gap-6 bg-emerald-50 px-10 py-5 rounded-[2rem] border border-emerald-100 relative z-10">
+                 <span className="text-emerald-700 font-black text-xs uppercase tracking-widest">Ayo Semangat Beraktivitas! 🚀</span>
               </div>
             </motion.div>
           </motion.div>
@@ -414,6 +493,224 @@ export default function KioskPage() {
       <Link to="/admin/dashboard" className="fixed bottom-6 right-6 z-40 p-4 bg-slate-100 rounded-full opacity-0 hover:opacity-100 transition-opacity">
         <ScanFace className="w-6 h-6 text-slate-300" />
       </Link>
+
+      {/* Logic Debugger Panel (Only in Test Mode) */}
+      {testMode && (
+        <motion.div 
+          initial={{ x: 300 }}
+          animate={{ x: 0 }}
+          className="fixed top-32 right-6 z-[60] w-72 bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 rounded-3xl p-6 shadow-2xl text-white overflow-hidden"
+        >
+          <div className="flex items-center gap-2 mb-6 border-b border-slate-700 pb-4">
+             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
+                <Zap className="w-5 h-5 text-slate-900" />
+             </div>
+             <div>
+               <h4 className="text-sm font-black uppercase tracking-widest text-amber-400">Logic Debugger</h4>
+               <p className="text-[10px] text-slate-400 font-bold uppercase">Mode Pengujian Aktif</p>
+             </div>
+          </div>
+
+          <div className="space-y-5">
+             <div className="space-y-3 p-4 bg-slate-800/50 rounded-2xl border border-slate-700/30">
+               <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Simulasi Waktu</label>
+                  <button 
+                    onClick={() => setUseSimTime(!useSimTime)}
+                    className={`text-[9px] font-black px-2 py-0.5 rounded-full border transition-all ${useSimTime ? 'bg-amber-500/20 border-amber-500/50 text-amber-500' : 'bg-slate-700/50 border-slate-600 text-slate-400'}`}
+                  >
+                    {useSimTime ? 'ON' : 'OFF'}
+                  </button>
+               </div>
+               
+               {useSimTime && (
+                 <div className="space-y-4 pt-2">
+                    <div className="space-y-1">
+                       <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                          <span>Jam</span>
+                          <span className="text-amber-400 font-bold">{simHour.toString().padStart(2, '0')}</span>
+                       </div>
+                       <input 
+                         type="range" min="0" max="23" value={simHour} 
+                         onChange={(e) => setSimHour(parseInt(e.target.value))}
+                         className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                       />
+                    </div>
+                    <div className="space-y-1">
+                       <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                          <span>Menit</span>
+                          <span className="text-amber-400 font-bold">{simMin.toString().padStart(2, '0')}</span>
+                       </div>
+                       <input 
+                         type="range" min="0" max="59" value={simMin} 
+                         onChange={(e) => setSimMin(parseInt(e.target.value))}
+                         className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                       />
+                    </div>
+                    <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700/50 text-center">
+                       <p className="text-[10px] font-mono text-slate-300">{simulatedTime}</p>
+                    </div>
+                 </div>
+               )}
+                {!useSimTime && (
+                 <p className="text-[9px] text-slate-500 italic py-2 text-center">Menggunakan waktu sistem secara real-time.</p>
+               )}
+             </div>
+
+             <div className="space-y-4 p-4 bg-slate-800/50 rounded-2xl border border-slate-700/30">
+                <div className="flex items-center gap-2 mb-1">
+                   <Zap className="w-3 h-3 text-amber-500" />
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Global Smart Logic</label>
+                </div>
+
+                <div className="space-y-3">
+                   {/* Cooldown */}
+                   <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-mono">
+                         <span className="text-slate-400">Cooldown</span>
+                         <span className="text-amber-400">{localCooldown}s</span>
+                      </div>
+                      <input 
+                        type="range" min="0" max="300" step="5" value={localCooldown} 
+                        onChange={(e) => setLocalCooldown(parseInt(e.target.value))}
+                        onMouseUp={async () => {
+                           if (token) await updateBackendSettings(token, { cooldown_seconds: localCooldown });
+                        }}
+                        className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                      />
+                   </div>
+
+                   {/* Min Gap */}
+                   <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-mono">
+                         <span className="text-slate-400">Min Gap Pulang</span>
+                         <span className="text-emerald-400">{localMinGap}m</span>
+                      </div>
+                      <input 
+                        type="range" min="0" max="240" step="10" value={localMinGap} 
+                        onChange={(e) => setLocalMinGap(parseInt(e.target.value))}
+                        onMouseUp={async () => {
+                           if (token) await updateBackendSettings(token, { min_gap_minutes: localMinGap });
+                        }}
+                        className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                   </div>
+
+                   {/* Boundary Time Sliders */}
+                   <div className="space-y-2 pt-1 border-t border-slate-700/50">
+                      <div className="flex justify-between text-[10px] font-mono mb-1">
+                         <span className="text-slate-400">Jam Batas (Limit)</span>
+                         <span className="text-rose-400 font-bold">{localPresenceHour.toString().padStart(2, '0')}:{localPresenceMin.toString().padStart(2, '0')}</span>
+                      </div>
+                      <div className="flex gap-4">
+                         <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-slate-500 uppercase font-black">Jam</span>
+                            <input 
+                              type="range" min="0" max="23" value={localPresenceHour} 
+                              onChange={(e) => setLocalPresenceHour(parseInt(e.target.value))}
+                              onMouseUp={async () => {
+                                 if (token) await updateBackendSettings(token, { presence_limit_time: `${localPresenceHour.toString().padStart(2, '0')}:${localPresenceMin.toString().padStart(2, '0')}` });
+                              }}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                            />
+                         </div>
+                         <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-slate-500 uppercase font-black">Min</span>
+                            <input 
+                              type="range" min="0" max="59" step="5" value={localPresenceMin} 
+                              onChange={(e) => setLocalPresenceMin(parseInt(e.target.value))}
+                              onMouseUp={async () => {
+                                 if (token) await updateBackendSettings(token, { presence_limit_time: `${localPresenceHour.toString().padStart(2, '0')}:${localPresenceMin.toString().padStart(2, '0')}` });
+                              }}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                            />
+                         </div>
+                      </div>
+                   </div>
+                </div>
+             </div>
+
+             <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700/30 space-y-4">
+                <div className="flex justify-between items-center">
+                   <span className="text-[10px] font-bold uppercase text-slate-400">Status</span>
+                   <Badge className={scanStatus === 'success' ? 'bg-emerald-500' : 'bg-slate-700'}>{scanStatus}</Badge>
+                </div>
+                
+                {debugData && (
+                  <>
+                    <div className="flex justify-between items-center">
+                       <span className="text-[10px] font-bold uppercase text-slate-400">Confidence</span>
+                       <span className={`font-mono text-sm ${debugData.confidence > 70 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {debugData.confidence}%
+                       </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                       <span className="text-[10px] font-bold uppercase text-slate-400">Cooldown</span>
+                       <span className="font-mono text-sm text-amber-400">
+                          {debugData.cooldown_remains}s
+                       </span>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-700/50 space-y-2">
+                       <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase text-slate-400">Boundary (Limit)</span>
+                          <span className="font-mono text-xs text-rose-400 font-bold">{presenceLimitTime}</span>
+                       </div>
+                       <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase text-slate-400">Logic Time</span>
+                          <span className="font-mono text-xs text-slate-300">{debugData.current_logic_time}</span>
+                       </div>
+                       <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase text-slate-400">Will Be</span>
+                          <Badge className={debugData.current_logic_time >= presenceLimitTime ? 'bg-blue-500' : 'bg-emerald-500'}>
+                             {debugData.current_logic_time >= presenceLimitTime ? 'CHECK-OUT' : 'CHECK-IN'}
+                          </Badge>
+                       </div>
+                    </div>
+
+                    {/* Fitur Sudah Absensi Info */}
+                    {(debugData.last_check_in || debugData.last_check_out) && (
+                      <div className="pt-2 border-t border-slate-700/50 space-y-2">
+                         <p className="text-[9px] font-bold text-slate-500 uppercase">Data Hari Ini:</p>
+                         <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-slate-400">Check-In</span>
+                            <span className="text-[10px] font-mono text-emerald-400">{debugData.last_check_in || '-'}</span>
+                         </div>
+                         <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-slate-400">Check-Out</span>
+                            <span className="text-[10px] font-mono text-blue-400">{debugData.last_check_out || '-'}</span>
+                         </div>
+                         
+                         {/* Action Reset */}
+                         <button 
+                           onClick={() => {
+                              ws.current?.send(JSON.stringify({
+                                type: 'reset_attendance',
+                                face_id: debugData.face_id || scannedName // Assuming face_id is passed or we use current detection
+                              }));
+                           }}
+                           className="w-full mt-2 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-[9px] font-black uppercase transition-all"
+                         >
+                           Reset Kehadiran Orang Ini
+                         </button>
+                      </div>
+                    )}
+                  </>
+                )}
+                {!debugData && (
+                   <p className="text-[10px] text-slate-500 text-center py-4">Menunggu deteksi...</p>
+                )}
+             </div>
+          </div>
+          
+          <div className="mt-6 pt-4 border-t border-slate-700 flex justify-center">
+             <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-[9px] font-black uppercase text-slate-500 tracking-tighter">Backend Connected: {debugData ? 'OK' : 'WAIT'}</span>
+             </div>
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }

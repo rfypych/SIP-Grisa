@@ -13,31 +13,36 @@ interface SettingsState {
   checkoutStartHour: number;
   programStartDate: string;
   alphaLimitTime: string;
+  presenceLimitTime: string;
   successSoundUrl: string;
   successSoundEnabled: boolean;
   exportLocation: string;
   exportSignatureEnabled: boolean;
   exportSignatureName: string;
   exportSignatureRole: string;
+  googleApiKey: string;
+  testMode: boolean;
   fetchBackendSettings: (token: string) => Promise<void>;
-  updateBackendSettings: (token: string, settings: { 
+  updateBackendSettings: (token: string, settings: Partial<{ 
     cooldown_seconds: number, 
     min_gap_minutes: number, 
-    checkout_start_hour: number, 
-    program_start_date: string,
+    program_start_date: string, 
     alpha_limit_time: string,
+    presence_limit_time: string,
     success_sound_url: string, 
     success_sound_enabled: boolean,
     export_location: string,
     export_signature_enabled: boolean,
     export_signature_name: string,
-    export_signature_role: string
-  }) => Promise<boolean>;
+    export_signature_role: string,
+    google_api_key?: string,
+    test_mode?: number
+  }>) => Promise<boolean>;
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       cameraSource: '0',
       setCameraSource: (source) => set({ cameraSource: source }),
       categories: ['Guru', 'Karyawan'],
@@ -47,15 +52,18 @@ export const useSettingsStore = create<SettingsState>()(
       // Default Backend Settings (will be overwritten by fetch)
       cooldownSeconds: 60,
       minGapMinutes: 60,
-      checkoutStartHour: 11,
+      checkoutStartHour: 8,
       programStartDate: '2026-03-01',
       alphaLimitTime: '07:30',
+      presenceLimitTime: '14:00',
       successSoundUrl: '/api/sounds/applepay.mp3',
       successSoundEnabled: true,
       exportLocation: 'Grobogan',
       exportSignatureEnabled: true,
       exportSignatureName: '( ......................................... )',
       exportSignatureRole: 'Mengetahui,',
+      googleApiKey: '',
+      testMode: false,
 
       fetchBackendSettings: async (token) => {
         try {
@@ -65,48 +73,73 @@ export const useSettingsStore = create<SettingsState>()(
           const data = await response.json();
           set({
             cooldownSeconds: data.cooldown_seconds,
-            minGapMinutes: data.min_gap_minutes,
+            minGapMinutes: data.min_gap_minutes || 60,
             checkoutStartHour: data.checkout_start_hour,
-            programStartDate: data.program_start_date,
+            programStartDate: data.program_start_date || '2026-03-01',
             alphaLimitTime: data.alpha_limit_time || '07:30',
+            presenceLimitTime: data.presence_limit_time || '14:00',
             successSoundUrl: data.success_sound_url || '/api/sounds/applepay.mp3',
             successSoundEnabled: !!data.success_sound_enabled,
             exportLocation: data.export_location || 'Grobogan',
             exportSignatureEnabled: !!data.export_signature_enabled,
             exportSignatureName: data.export_signature_name || '( ......................................... )',
-            exportSignatureRole: data.export_signature_role || 'Mengetahui,'
+            exportSignatureRole: data.export_signature_role || 'Mengetahui,',
+            googleApiKey: data.google_api_key || '',
+            testMode: !!data.test_mode
           });
         } catch (error) {
           console.error("Gagal mengambil pengaturan backend:", error);
         }
       },
 
-      updateBackendSettings: async (token, settings) => {
-        try {
-          const response = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json' 
-            },
-            body: JSON.stringify(settings)
+      updateBackendSettings: async (token, settingsPartial) => {
+      const state = get();
+      
+      // Merge partial with current state to satisfy backend requirement
+      const fullSettings = {
+        cooldown_seconds: settingsPartial.cooldown_seconds ?? state.cooldownSeconds,
+        min_gap_minutes: settingsPartial.min_gap_minutes ?? state.minGapMinutes,
+        program_start_date: settingsPartial.program_start_date ?? state.programStartDate,
+        alpha_limit_time: settingsPartial.alpha_limit_time ?? state.alphaLimitTime,
+        presence_limit_time: settingsPartial.presence_limit_time ?? state.presenceLimitTime,
+        success_sound_url: settingsPartial.success_sound_url ?? state.successSoundUrl,
+        success_sound_enabled: settingsPartial.success_sound_enabled ?? state.successSoundEnabled,
+        export_location: settingsPartial.export_location ?? state.exportLocation,
+        export_signature_enabled: settingsPartial.export_signature_enabled ?? state.exportSignatureEnabled,
+        export_signature_name: settingsPartial.export_signature_name ?? state.exportSignatureName,
+        export_signature_role: settingsPartial.export_signature_role ?? state.exportSignatureRole,
+        google_api_key: settingsPartial.google_api_key ?? state.googleApiKey,
+        test_mode: settingsPartial.test_mode ?? (state.testMode ? 1 : 0)
+      };
+
+      try {
+        const response = await fetch('/api/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(fullSettings)
+        });
+        
+        if (response.ok) {
+          set({
+            cooldownSeconds: fullSettings.cooldown_seconds,
+            minGapMinutes: fullSettings.min_gap_minutes,
+            programStartDate: fullSettings.program_start_date,
+            alphaLimitTime: fullSettings.alpha_limit_time,
+            presenceLimitTime: fullSettings.presence_limit_time,
+            successSoundUrl: fullSettings.success_sound_url,
+            successSoundEnabled: !!fullSettings.success_sound_enabled,
+            exportLocation: fullSettings.export_location,
+            exportSignatureEnabled: !!fullSettings.export_signature_enabled,
+            exportSignatureName: fullSettings.export_signature_name,
+            exportSignatureRole: fullSettings.export_signature_role,
+            googleApiKey: fullSettings.google_api_key,
+            testMode: !!fullSettings.test_mode
           });
-          if (response.ok) {
-            set({
-              cooldownSeconds: settings.cooldown_seconds,
-              minGapMinutes: settings.min_gap_minutes,
-              checkoutStartHour: settings.checkout_start_hour,
-              programStartDate: settings.program_start_date,
-              alphaLimitTime: settings.alpha_limit_time,
-              successSoundUrl: settings.success_sound_url,
-              successSoundEnabled: settings.success_sound_enabled,
-              exportLocation: settings.export_location,
-              exportSignatureEnabled: settings.export_signature_enabled,
-              exportSignatureName: settings.export_signature_name,
-              exportSignatureRole: settings.export_signature_role
-            });
-            return true;
-          }
+          return true;
+        }
           return false;
         } catch (error) {
           console.error("Gagal update pengaturan backend:", error);

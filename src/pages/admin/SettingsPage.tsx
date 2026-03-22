@@ -10,8 +10,8 @@ export default function SettingsPage() {
   const { 
     cameraSource, setCameraSource, 
     categories, addCategory, removeCategory,
-    cooldownSeconds, minGapMinutes, checkoutStartHour, programStartDate, alphaLimitTime, successSoundUrl, successSoundEnabled,
-    exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole,
+    cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime, successSoundUrl, successSoundEnabled,
+    exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode,
     fetchBackendSettings, updateBackendSettings
   } = useSettingsStore();
   const { token } = useAuthStore();
@@ -19,15 +19,17 @@ export default function SettingsPage() {
   const [localSource, setLocalSource] = useState(cameraSource);
   const [localCooldown, setLocalCooldown] = useState(cooldownSeconds);
   const [localMinGap, setLocalMinGap] = useState(minGapMinutes);
-  const [localCheckoutHour, setLocalCheckoutHour] = useState(checkoutStartHour);
-  const [localProgramDate, setLocalProgramDate] = useState(programStartDate);
-  const [localAlphaTime, setLocalAlphaTime] = useState(alphaLimitTime);
-  const [localSoundUrl, setLocalSoundUrl] = useState(successSoundUrl);
+  const [localProgramStartDate, setLocalProgramStartDate] = useState(programStartDate);
+  const [localAlphaLimitTime, setLocalAlphaLimitTime] = useState(alphaLimitTime);
+  const [localPresenceLimitTime, setLocalPresenceLimitTime] = useState(presenceLimitTime);
+  const [localSuccessSoundUrl, setLocalSuccessSoundUrl] = useState(successSoundUrl);
   const [localSoundEnabled, setLocalSoundEnabled] = useState(successSoundEnabled);
   const [localExportLocation, setLocalExportLocation] = useState(exportLocation);
   const [localExportSignatureEnabled, setLocalExportSignatureEnabled] = useState(exportSignatureEnabled);
   const [localExportSignatureName, setLocalExportSignatureName] = useState(exportSignatureName);
   const [localExportSignatureRole, setLocalExportSignatureRole] = useState(exportSignatureRole);
+  const [localGoogleApiKey, setLocalGoogleApiKey] = useState(googleApiKey);
+  const [localTestMode, setLocalTestMode] = useState(testMode);
 
   
   const [isSaved, setIsSaved] = useState(false);
@@ -44,16 +46,18 @@ export default function SettingsPage() {
     setLocalSource(cameraSource);
     setLocalCooldown(cooldownSeconds);
     setLocalMinGap(minGapMinutes);
-    setLocalCheckoutHour(checkoutStartHour);
-    setLocalProgramDate(programStartDate);
-    setLocalAlphaTime(alphaLimitTime);
-    setLocalSoundUrl(successSoundUrl);
+    setLocalProgramStartDate(programStartDate);
+    setLocalAlphaLimitTime(alphaLimitTime);
+    setLocalPresenceLimitTime(presenceLimitTime);
+    setLocalSuccessSoundUrl(successSoundUrl);
     setLocalSoundEnabled(successSoundEnabled);
     setLocalExportLocation(exportLocation);
     setLocalExportSignatureEnabled(exportSignatureEnabled);
     setLocalExportSignatureName(exportSignatureName);
     setLocalExportSignatureRole(exportSignatureRole);
-  }, [cameraSource, cooldownSeconds, minGapMinutes, checkoutStartHour, programStartDate, alphaLimitTime, successSoundUrl, successSoundEnabled, exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole]);
+    setLocalGoogleApiKey(googleApiKey);
+    setLocalTestMode(testMode);
+  }, [cameraSource, cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime, successSoundUrl, successSoundEnabled, exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode]);
 
   const handleSaveLocal = () => {
     setCameraSource(localSource);
@@ -66,15 +70,17 @@ export default function SettingsPage() {
     const success = await updateBackendSettings(token, {
       cooldown_seconds: localCooldown,
       min_gap_minutes: localMinGap,
-      checkout_start_hour: localCheckoutHour,
-      program_start_date: localProgramDate,
-      alpha_limit_time: localAlphaTime,
-      success_sound_url: localSoundUrl,
+      program_start_date: localProgramStartDate,
+      alpha_limit_time: localAlphaLimitTime,
+      presence_limit_time: localPresenceLimitTime,
+      success_sound_url: localSuccessSoundUrl,
       success_sound_enabled: localSoundEnabled,
       export_location: localExportLocation,
       export_signature_enabled: localExportSignatureEnabled,
       export_signature_name: localExportSignatureName,
-      export_signature_role: localExportSignatureRole
+      export_signature_role: localExportSignatureRole,
+      google_api_key: localGoogleApiKey,
+      test_mode: localTestMode ? 1 : 0
     });
     if (success) {
       setIsBackendSaved(true);
@@ -99,7 +105,7 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (data.status === 'success') {
-        setLocalSoundUrl(data.url);
+        setLocalSuccessSoundUrl(data.url);
       } else {
         alert("Gagal mengunggah suara.");
       }
@@ -158,6 +164,21 @@ export default function SettingsPage() {
             Konfigurasi Presensi Pintar (Smart Logic)
           </CardTitle>
           <p className="text-sm text-slate-500 mt-1">Penyetelan durasi dan logika otomatis untuk mencegah deteksi palsu.</p>
+          <div className="flex items-center gap-3 mt-4 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+             <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                <Zap className="w-5 h-5 text-amber-600" />
+             </div>
+             <div className="flex-1">
+                <p className="text-xs font-bold text-amber-900 uppercase tracking-wider">Mode Pengujian (Global)</p>
+                <p className="text-[10px] text-amber-700">Aktifkan untuk melihat data debug (confidence, cooldown) di Kiosk.</p>
+             </div>
+             <button 
+               onClick={() => setLocalTestMode(!localTestMode)}
+               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${localTestMode ? 'bg-amber-500' : 'bg-slate-200'}`}
+             >
+               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${localTestMode ? 'translate-x-6' : 'translate-x-1'}`} />
+             </button>
+          </div>
         </CardHeader>
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
@@ -189,26 +210,12 @@ export default function SettingsPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-emerald-600" /> Jam Bebas Pulang
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="23"
-                value={localCheckoutHour}
-                onChange={(e) => setLocalCheckoutHour(parseInt(e.target.value) || 0)}
-                className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-slate-900"
-              />
-              <p className="text-[10px] text-slate-500 italic">Boleh Pulang tanpa jeda.</p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
                  <Calendar className="w-4 h-4 text-emerald-600" /> Mulai Program
               </label>
               <input
                 type="date"
-                value={localProgramDate}
-                onChange={(e) => setLocalProgramDate(e.target.value)}
+                value={localProgramStartDate}
+                onChange={(e) => setLocalProgramStartDate(e.target.value)}
                 className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-slate-900"
               />
               <p className="text-[10px] text-slate-500 italic">Alpha tak dihitung sblm ini.</p>
@@ -216,15 +223,29 @@ export default function SettingsPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-rose-600" /> Jam Batas Alpha
+                 <Clock className="w-4 h-4 text-rose-600" /> Batas Presensi / Jam Pulang
               </label>
               <input
                 type="time"
-                value={localAlphaTime}
-                onChange={(e) => setLocalAlphaTime(e.target.value)}
+                value={localPresenceLimitTime}
+                onChange={(e) => setLocalPresenceLimitTime(e.target.value)}
                 className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-rose-500 text-slate-900"
               />
-              <p className="text-[10px] text-slate-500 italic">Abstrak otomatis Alpha jika lewat.</p>
+              <p className="text-[10px] text-slate-500 italic">Lewat jam ini = Check-out / Alpha.</p>
+            </div>
+            
+            <div className="space-y-2 col-span-full md:col-span-2">
+              <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                 <ShieldCheck className="w-4 h-4 text-emerald-600" /> Gemini API Key (Global)
+              </label>
+              <input
+                type="password"
+                value={localGoogleApiKey}
+                onChange={(e) => setLocalGoogleApiKey(e.target.value)}
+                placeholder="AIzaSyA..."
+                className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-slate-900 font-mono"
+              />
+              <p className="text-[10px] text-slate-500 italic">Kunci ini bersifat global untuk seluruh fitur AI. Kosongkan jika ingin menggunakan .env.</p>
             </div>
           </div>
 
@@ -287,7 +308,7 @@ export default function SettingsPage() {
                    variant="outline" 
                    size="sm"
                    onClick={() => {
-                     const audio = new Audio(localSoundUrl);
+                     const audio = new Audio(localSuccessSoundUrl);
                      audio.play();
                    }}
                    className="gap-2 bg-white"
@@ -295,12 +316,12 @@ export default function SettingsPage() {
                    <Play className="w-4 h-4" /> Tes Play
                  </Button>
                  <div className="text-[10px] font-mono text-slate-500 truncate flex-1">
-                   {localSoundUrl.split('/').pop()}
+                   {localSuccessSoundUrl.split('/').pop()}
                  </div>
                  <Button 
                    variant="ghost" 
                    size="sm"
-                   onClick={() => setLocalSoundUrl('/api/sounds/applepay.mp3')}
+                   onClick={() => setLocalSuccessSoundUrl('/api/sounds/applepay.mp3')}
                    className="text-slate-400 hover:text-orange-600"
                    title="Reset ke Default"
                  >

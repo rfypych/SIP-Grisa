@@ -9,7 +9,7 @@ interface DailyAttendance {
   checkOut?: string;
 }
 
-interface EmployeeAttendance {
+export interface EmployeeAttendance {
   id: string;
   name: string;
   avatar: string;
