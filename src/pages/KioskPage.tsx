@@ -18,6 +18,7 @@ export default function KioskPage() {
     presenceLimitTime,
     checkinStartTime,
     checkoutStartTime,
+    enforceMinGap,
     testMode,
     fetchBackendSettings,
     updateBackendSettings
@@ -47,6 +48,7 @@ export default function KioskPage() {
   const [localCheckinMin, setLocalCheckinMin] = useState(0);
   const [localCheckoutHour, setLocalCheckoutHour] = useState(14);
   const [localCheckoutMin, setLocalCheckoutMin] = useState(0);
+  const [localEnforceMinGap, setLocalEnforceMinGap] = useState(false);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const handleUpdateSetting = (key: string, value: any) => {
@@ -102,7 +104,8 @@ export default function KioskPage() {
     const [coH, coM] = (checkoutStartTime || '14:00').split(':').map(Number);
     setLocalCheckoutHour(coH || 0);
     setLocalCheckoutMin(coM || 0);
-  }, [cooldownSeconds, minGapMinutes, presenceLimitTime, checkinStartTime, checkoutStartTime]);
+    setLocalEnforceMinGap(enforceMinGap);
+  }, [cooldownSeconds, minGapMinutes, presenceLimitTime, checkinStartTime, checkoutStartTime, enforceMinGap]);
 
   const saveLocalConfig = () => {
     setCameraSource(tempCamera);
@@ -612,11 +615,24 @@ export default function KioskPage() {
                       />
                    </div>
 
-                   {/* Min Gap */}
+                   {/* Min Gap & Wajib Gap Toggle */}
                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px] font-mono">
+                      <div className="flex justify-between items-center text-[10px] font-mono">
                          <span className="text-slate-400">Min Gap Pulang</span>
-                         <span className="text-emerald-400">{localMinGap}m</span>
+                         <div className="flex items-center gap-2">
+                            <span className="text-slate-500 uppercase text-[8px] font-black">Wajib?</span>
+                            <button
+                              className={`w-8 h-4 rounded-full transition-colors relative ${localEnforceMinGap ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                              onClick={() => {
+                                const newVal = !localEnforceMinGap;
+                                setLocalEnforceMinGap(newVal);
+                                handleUpdateSetting('enforce_min_gap', newVal ? 1 : 0);
+                              }}
+                            >
+                               <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all ${localEnforceMinGap ? 'left-4' : 'left-0.5'}`} />
+                            </button>
+                            <span className="text-emerald-400 font-bold ml-1">{localMinGap}m</span>
+                         </div>
                       </div>
                       <input 
                         type="range" min="0" max="240" step="10" value={localMinGap} 
@@ -625,7 +641,8 @@ export default function KioskPage() {
                           setLocalMinGap(val);
                           handleUpdateSetting('min_gap_minutes', val);
                         }}
-                        className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        disabled={!localEnforceMinGap}
+                        className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500 ${!localEnforceMinGap ? 'opacity-30' : ''}`}
                       />
                    </div>
 

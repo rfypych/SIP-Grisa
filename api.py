@@ -1034,6 +1034,7 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                         presence_limit_val = sys_settings['presence_limit_time'] if sys_settings else '14:00'
                         checkin_start_val = sys_settings['checkin_start_time'] if sys_settings and 'checkin_start_time' in sys_settings and sys_settings['checkin_start_time'] else '06:00'
                         checkout_start_val = sys_settings['checkout_start_time'] if sys_settings and 'checkout_start_time' in sys_settings and sys_settings['checkout_start_time'] else '14:00'
+                        enforce_gap_val = sys_settings['enforce_min_gap'] if sys_settings and 'enforce_min_gap' in sys_settings else 0
                         
                         # print(f"DEBUG: Logic using cooldown={cooldown_val}, min_gap={min_gap_val}, limit={presence_limit_val}")
                         
@@ -1071,6 +1072,22 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                     "debug": debug_info
                                 })
                             elif not existing:
+                                # JIKA TIDAK WAJIB MIN GAP & SUDAH JAM PULANG -> OTOMATIS CHECK OUT SAJA.
+                                if not enforce_gap_val and time_now >= checkout_start_val:
+                                    status = "alfa" # Alfa karena skip jam masuk pagi
+                                    conn.execute("INSERT INTO attendance (employee_id, date, check_in, check_out, status, recorded_by) VALUES (%s, %s, %s, %s, %s, %s)",
+                                                 (face_id, today, None, time_now, status, gate_admin_id))
+                                    conn.commit()
+                                    await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkout"})
+                                    await websocket.send_json({
+                                        "event": "success",
+                                        "name": real_name,
+                                        "id": face_id,
+                                        "type": "checkout",
+                                        "debug": debug_info
+                                    })
+                                    continue
+
                                 # BLOCK CHECK IN BEFORE START TIME
                                 if time_now < checkin_start_val:
                                     await websocket.send_json({
@@ -1128,12 +1145,12 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                         check_in_time = datetime.strptime(f"{today} {check_in_str}", "%Y-%m-%d %H:%M:%S")
                                         minutes_diff = (now - check_in_time).total_seconds() / 60
                                         
-                                        if minutes_diff >= min_gap_val:
+                                        if not enforce_gap_val or minutes_diff >= min_gap_val:
                                             can_checkout = True
                                         else:
                                             early_checkout_msg = f"Anda sudah presensi masuk. Belum waktunya pulang (tunggu {int(min_gap_val - minutes_diff)} menit lagi)."
                                     except:
-                                        if time_now >= presence_limit_val:
+                                        if not enforce_gap_val or time_now >= presence_limit_val:
                                             can_checkout = True
                                         else:
                                             early_checkout_msg = "Anda sudah presensi masuk. Belum waktunya pulang."

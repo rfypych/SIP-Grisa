@@ -10,7 +10,10 @@ export default function SettingsPage() {
   const { 
     cameraSource, setCameraSource, 
     categories, addCategory, removeCategory,
-    cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime, successSoundUrl, successSoundEnabled,
+    cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime,
+    checkinStartTime,
+    checkoutStartTime,
+    enforceMinGap, successSoundUrl, successSoundEnabled,
     exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode,
     fetchBackendSettings, updateBackendSettings
   } = useSettingsStore();
@@ -57,7 +60,10 @@ export default function SettingsPage() {
     setLocalExportSignatureRole(exportSignatureRole);
     setLocalGoogleApiKey(googleApiKey);
     setLocalTestMode(testMode);
-  }, [cameraSource, cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime, successSoundUrl, successSoundEnabled, exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode]);
+  }, [cameraSource, cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime,
+    checkinStartTime,
+    checkoutStartTime,
+    enforceMinGap, successSoundUrl, successSoundEnabled, exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode]);
 
   const handleSaveLocal = () => {
     setCameraSource(localSource);

@@ -16,6 +16,7 @@ interface SettingsState {
   presenceLimitTime: string;
   checkinStartTime: string;
   checkoutStartTime: string;
+  enforceMinGap: boolean;
   successSoundUrl: string;
   successSoundEnabled: boolean;
   exportLocation: string;
@@ -33,6 +34,7 @@ interface SettingsState {
     presence_limit_time: string,
     checkin_start_time: string,
     checkout_start_time: string,
+    enforce_min_gap?: number,
     success_sound_url: string, 
     success_sound_enabled: boolean,
     export_location: string,
@@ -62,6 +64,7 @@ export const useSettingsStore = create<SettingsState>()(
       presenceLimitTime: '14:00',
       checkinStartTime: '06:00',
       checkoutStartTime: '14:00',
+      enforceMinGap: false,
       successSoundUrl: '/api/sounds/applepay.mp3',
       successSoundEnabled: true,
       exportLocation: 'Grobogan',
@@ -86,6 +89,7 @@ export const useSettingsStore = create<SettingsState>()(
             presenceLimitTime: data.presence_limit_time || '14:00',
             checkinStartTime: data.checkin_start_time || '06:00',
             checkoutStartTime: data.checkout_start_time || '14:00',
+            enforceMinGap: !!data.enforce_min_gap,
             successSoundUrl: data.success_sound_url || '/api/sounds/applepay.mp3',
             successSoundEnabled: !!data.success_sound_enabled,
             exportLocation: data.export_location || 'Grobogan',
@@ -122,6 +126,7 @@ export const useSettingsStore = create<SettingsState>()(
             presenceLimitTime: settingsPartial.presence_limit_time !== undefined ? settingsPartial.presence_limit_time : state.presenceLimitTime,
             checkinStartTime: settingsPartial.checkin_start_time !== undefined ? settingsPartial.checkin_start_time : state.checkinStartTime,
             checkoutStartTime: settingsPartial.checkout_start_time !== undefined ? settingsPartial.checkout_start_time : state.checkoutStartTime,
+            enforceMinGap: settingsPartial.enforce_min_gap !== undefined ? !!settingsPartial.enforce_min_gap : state.enforceMinGap,
             successSoundUrl: settingsPartial.success_sound_url !== undefined ? settingsPartial.success_sound_url : state.successSoundUrl,
             successSoundEnabled: settingsPartial.success_sound_enabled !== undefined ? !!settingsPartial.success_sound_enabled : state.successSoundEnabled,
             exportLocation: settingsPartial.export_location !== undefined ? settingsPartial.export_location : state.exportLocation,
