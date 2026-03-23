@@ -1,86 +1,126 @@
-# 🏢 SIP Grisa - Sistem Informasi Presensi Grisa
+# SIP Grisa - Sistem Presensi Wajah Berbasis AI
 
-<div align="center">
-  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
-  <img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" />
-  <img src="https://img.shields.io/badge/Tailwind_CSS_4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" />
-  <img src="https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white" />
-  <br />
-  <p align="center">
-    <b>Sistem Presensi Berbasis Pengenalan Wajah (Face Recognition) yang Cepat, Akurat, dan Modern.</b>
-    <br />
-    <i>Didesain untuk efisiensi operasional dan kenyamanan pengalaman pengguna.</i>
-  </p>
-</div>
+SIP Grisa adalah aplikasi presensi karyawan/guru berbasis pengenalan wajah (Face Recognition) yang dibangun dengan FastAPI (Backend) dan React/TypeScript (Frontend). Aplikasi ini dilengkapi dengan **Smart Logic Attendance System** yang mendeteksi, mencegah, dan mengatur alur check-in/check-out secara otomatis dan aman dari kecurangan.
 
 ---
 
-## ✨ Fitur Unggulan
+## 🏗 Topologi Sistem (System Architecture)
 
-- 🤖 **Face Recognition Real-time**: Deteksi dan pencocokan wajah super cepat menggunakan library `dlib`.
-- 📊 **Matriks Laporan Matang**: Visualisasi kehadiran bulanan dengan status otomatis (Masuk, Pulang, Sakit, Izin, Alfa).
-- 🧠 **Smart Logic Implementation**: 
-  - *Auto-Alpha*: Menandai karyawan secara otomatis jika melewati jam batas kedatangan.
-  - *Adaptive Cooldown*: Mencegah dobel absen dalam waktu singkat di Kiosk.
-  - *Checkout Grace Period*: Logika pintar untuk menentukan waktu pulang karyawan.
-- 📸 **Multi-Pattern Accuracy**: Mendukung banyak foto per ID untuk meningkatkan ketangguhan pengenalan.
-- 🔊 **Audio & Visual Feedback**: Respon instan pada Kiosk dengan notifikasi suara dan modal animasi.
-- 📄 **Export Excel Profesional**: Laporan siap cetak dengan tanda tangan otomatis dan rekapulasi lengkap.
+```mermaid
+graph TD
+    subgraph Frontend [Frontend Aplikasi Web React]
+        A(Kiosk / Gerbang Utama)
+        B(Admin Dashboard)
+    end
 
----
+    subgraph Backend [Backend Server - FastAPI]
+        C(REST API Router)
+        D(WebSocket Manager)
+        E[Face Recognition Engine\nOpenCV + dlib]
+        F[(In-Memory Cache\nSettings & Cooldowns)]
+    end
 
-## 🛠️ Arsitektur Teknologi
+    subgraph Database [Database MySQL]
+        G[(sip_grisa DB)]
+        H[Tabel attendance]
+        I[Tabel employees]
+        J[Tabel system_settings]
+    end
 
-### Backend & Frontend (./)
-- **FastAPI**: Engine API asinkron dengan performa tinggi.
-- **MySQL**: Penyimpanan data relasional yang tangguh dan skalabel.
-- **Dlib & Face Recognition**: Otak di balik biometrik wajah.
-- **React 19 & Vite**: Interface yang responsif dan modern.
-- **Tailwind CSS 4 & Zustand**: Desain elegan dan state management efisien.
+    %% Koneksi Frontend ke Backend
+    A -- WebSocket /ws/kiosk\nKirim Base64 Frame --> D
+    B -- HTTP GET/POST/PUT/DELETE\nManage Data & Settings --> C
 
----
+    %% Internal Backend
+    C <--> F
+    D <--> F
+    D -- Decode Frame & Prediksi --> E
 
-## 🚀 Cara Menjalankan (All-in-One)
-
-Sistem ini sekarang dilengkapi dengan skrip otomatisasi untuk setup dan menjalankan aplikasi sekaligus:
-
-1.  **Gunakan Shortcut**:
-    - **Windows**: Klik dua kali file **`run.bat`**.
-    - **Linux/macOS**: Jalankan `chmod +x start.sh && ./start.sh`.
-    - *Skrip ini akan otomatis mengecek dependensi (Python/Node.js), menginstall yang kurang, dan menjalankan Backend + Frontend sekaligus.*
-
----
-
-### 🛠️ Mode Manual (Alternatif)
-
-Jika ingin menjalankan secara terpisah di dalam folder `SIP-Grisa`:
-
-**Backend:**
-```bash
-uvicorn api:app --reload --host 0.0.0.0 --port 8000
-```
-
-**Frontend:**
-```bash
-npm run dev
+    %% Koneksi Backend ke DB
+    C -- Read/Write --> G
+    D -- Cek & Simpan Presensi --> H
+    D -- Ambil ID Pegawai --> I
+    F -- Fetch TTL Cache --> J
 ```
 
 ---
 
-## ⚙️ Logika Operasional (Smart Logic)
+## 🧠 Flow Lengkap Presensi Kios (Smart Logic WebSocket)
 
-Sistem ini dilengkapi dengan **Smart Logic** yang dapat dikonfigurasi melalui Dashboard Admin:
-- **Jam Batas Alpha**: Batas toleransi masuk (Misal: 05:30).
-- **Mulai Program**: Tanggal awal sistem aktif (Alpha tidak dihitung sebelum ini).
-- **Jeda Pulang**: Minimal durasi kerja sebelum bisa melakukan Check-out.
-- **Jam Bebas Pulang**: Jam di mana karyawan diizinkan pulang instan tanpa melihat jeda minimal.
+Berikut adalah alur bagaimana sistem membedakan antara Check-in, Alfa, Early Check-out, dan Check-out yang sukses:
+
+```mermaid
+flowchart TD
+    Start([Kamera Kiosk Menangkap Wajah]) --> CekWajah{Apakah Wajah Dikenali?}
+    CekWajah -- Tidak --> Drop([Abaikan Frame])
+    CekWajah -- Ya --> DapatkanData[Ambil Face ID & Waktu Saat Ini Time_Now]
+
+    DapatkanData --> CekCooldown{Apakah Face ID<br>dalam Cooldown 1 Menit?}
+    CekCooldown -- Ya --> DropCooldown([Kirim Event: on_cooldown])
+    CekCooldown -- Tidak --> CekStatusDB{Sudah ada data absen hari ini?}
+
+    %% --- CABANG BELUM ADA DATA HARI INI (CHECK-IN) ---
+    CekStatusDB -- Belum --> CekWaktuMasuk{Time_Now < Check-in Start?}
+    CekWaktuMasuk -- Ya --> TolakMasuk([Kirim Peringatan:<br>Belum Waktunya Presensi Masuk])
+    CekWaktuMasuk -- Tidak --> CekWajibGap{Wajib Min Gap (Enforce) = OFF<br>DAN<br>Time_Now >= Check-out Start?}
+
+    CekWajibGap -- Ya --> SkipMasuk[Tandai Status Alfa<br>Hanya Catat Check-out] --> BerhasilCheckout([Kirim Event Sukses Check-out])
+    CekWajibGap -- Tidak --> CekLimitMasuk{Time_Now > Presence Limit?}
+
+    CekLimitMasuk -- Ya --> SetAlfa[Set Status = Alfa]
+    CekLimitMasuk -- Tidak --> SetHadir[Set Status = Hadir]
+
+    SetAlfa --> SimpanCheckin[Catat Jam Check-in]
+    SetHadir --> SimpanCheckin
+    SimpanCheckin --> BerhasilCheckin([Kirim Event Sukses Check-in])
+
+    %% --- CABANG SUDAH ADA DATA HARI INI (CHECK-OUT) ---
+    CekStatusDB -- Sudah --> CekSudahPulang{Kolom Check-out<br>Sudah Terisi?}
+    CekSudahPulang -- Ya --> SudahSelesai([Kirim Peringatan:<br>Anda Sudah Presensi Pulang])
+    CekSudahPulang -- Tidak --> CekWaktuPulang{Time_Now < Check-out Start?}
+
+    CekWaktuPulang -- Ya --> TolakPulangWaktu([Kirim Peringatan:<br>Sudah Absen Masuk.<br>Belum Waktunya Pulang])
+    CekWaktuPulang -- Tidak --> CekMinGap{Apakah Waktu Kerja<br>>= Min Gap?}
+
+    CekMinGap -- Ya --> SimpanCheckout[Catat Jam Check-out] --> BerhasilCheckout2([Kirim Event Sukses Check-out])
+    CekMinGap -- Tidak --> CekEnforceGap{Wajib Min Gap (Enforce) = ON?}
+
+    CekEnforceGap -- Ya --> TolakPulangDurasi([Kirim Peringatan:<br>Sudah Absen Masuk.<br>Belum Waktunya Pulang Tunggu X menit])
+    CekEnforceGap -- Tidak --> CekLimitPulang{Time_Now >= Presence Limit?}
+
+    CekLimitPulang -- Ya --> SimpanCheckout
+    CekLimitPulang -- Tidak --> TolakPulangDurasi
+```
 
 ---
 
-## 🤝 Kontribusi & Dukungan
+## ⚙️ Penjelasan Pengaturan Logika Pintar (Smart Logic Settings)
 
-Proyek ini dikembangkan untuk kebutuhan internal **Grisa**. Untuk kendala teknis atau saran pengembangan, silakan hubungi tim IT.
+*   **Jam Mulai Masuk (`checkin_start_time`)**: Sistem menolak absensi jika wajah terscan sebelum jam ini (mencegah absen subuh-subuh).
+*   **Jam Mulai Pulang (`checkout_start_time`)**: Sistem menolak absensi pulang jika wajah terscan sebelum jam ini (meskipun sudah lewat Min Gap).
+*   **Batas Waktu Presensi (`presence_limit_time`)**: Batas waktu Check-in. Lewat dari jam ini, status presensi otomatis dihitung **Alfa/Terlambat**.
+*   **Jeda Pulang Min / Min Gap (`min_gap_minutes`)**: Durasi wajib bagi pegawai untuk berada di sekolah. (Cth: Jika diset 60 menit, pegawai yang telat check-in di jam 13:45 tidak bisa langsung check-out di jam 14:00, mereka harus menunggu hingga 14:45).
+*   **Wajib Jeda Pulang (`enforce_min_gap`)**: Jika **dimatikan**, pegawai yang baru datang setelah jam kepulangan (misal datang jam 15:00) akan langsung dicatat sebagai Check-out/Alfa (melompati Check-in). Jika **dinyalakan**, pegawai tersebut tetap wajib menyelesaikan `Min Gap`.
+*   **Cooldown Presensi (`cooldown_seconds`)**: Jeda waktu agar sistem tidak nge-spam absen untuk wajah yang sama secara beruntun (Default: 60 detik).
 
-<div align="center">
-  <p><b>IT Department &copy; 2026 - SIP Grisa Project</b></p>
-</div>
+---
+
+## 🚀 Cara Menjalankan Aplikasi
+
+1.  **Backend (FastAPI)**
+    ```bash
+    pip install -r requirements.txt
+    python api.py
+    ```
+    Atau via Uvicorn langsung:
+    ```bash
+    uvicorn api:app --host 0.0.0.0 --port 8000
+    ```
+
+2.  **Frontend (React/Vite)**
+    ```bash
+    npm install
+    npm run dev &
+    ```
+
+*Note: Database akan terinisialisasi dan dibuat otomatis ke dalam MySQL saat pertama kali backend (`api.py`) dihidupkan.*
