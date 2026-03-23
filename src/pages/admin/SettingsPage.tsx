@@ -33,7 +33,9 @@ export default function SettingsPage() {
   const [localExportSignatureRole, setLocalExportSignatureRole] = useState(exportSignatureRole);
   const [localGoogleApiKey, setLocalGoogleApiKey] = useState(googleApiKey);
   const [localTestMode, setLocalTestMode] = useState(testMode);
-
+  const [localCheckinStart, setLocalCheckinStart] = useState(checkinStartTime);
+  const [localCheckoutStart, setLocalCheckoutStart] = useState(checkoutStartTime);
+  const [localEnforceGap, setLocalEnforceGap] = useState(enforceMinGap);
   
   const [isSaved, setIsSaved] = useState(false);
   const [isBackendSaved, setIsBackendSaved] = useState(false);
@@ -60,6 +62,9 @@ export default function SettingsPage() {
     setLocalExportSignatureRole(exportSignatureRole);
     setLocalGoogleApiKey(googleApiKey);
     setLocalTestMode(testMode);
+    setLocalCheckinStart(checkinStartTime);
+    setLocalCheckoutStart(checkoutStartTime);
+    setLocalEnforceGap(enforceMinGap);
   }, [cameraSource, cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime,
     checkinStartTime,
     checkoutStartTime,
@@ -86,7 +91,10 @@ export default function SettingsPage() {
       export_signature_name: localExportSignatureName,
       export_signature_role: localExportSignatureRole,
       google_api_key: localGoogleApiKey,
-      test_mode: localTestMode ? 1 : 0
+      test_mode: localTestMode ? 1 : 0,
+      checkin_start_time: localCheckinStart,
+      checkout_start_time: localCheckoutStart,
+      enforce_min_gap: localEnforceGap ? 1 : 0
     });
     if (success) {
       setIsBackendSaved(true);
