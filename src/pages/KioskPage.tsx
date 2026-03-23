@@ -138,8 +138,8 @@ export default function KioskPage() {
     const wsUrl = `${protocol}//${window.location.host}/ws/kiosk`;
     
     ws.current = new WebSocket(wsUrl);
-    const isProcessingRef = useRef(false);
-    const lastRequestTimeRef = useRef(Date.now());
+    let isProcessing = false;
+    let lastRequestTime = Date.now();
 
     ws.current.onopen = () => {
       if (token) {
@@ -152,7 +152,7 @@ export default function KioskPage() {
 
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      isProcessingRef.current = false;
+      isProcessing = false;
 
       if (data.event === 'success') {
         setScannedName(data.name);
@@ -196,13 +196,13 @@ export default function KioskPage() {
 
     const sendLoop = setInterval(() => {
       // Safety guard: if stuck isProcessing for more than 5s, reset it
-      if (isProcessingRef.current && Date.now() - lastRequestTimeRef.current > 5000) {
-        isProcessingRef.current = false;
+      if (isProcessing && Date.now() - lastRequestTime > 5000) {
+        isProcessing = false;
       }
 
-      if (!isProcessingRef.current) {
-        isProcessingRef.current = true;
-        lastRequestTimeRef.current = Date.now();
+      if (!isProcessing) {
+        isProcessing = true;
+        lastRequestTime = Date.now();
         captureAndSend();
       }
     }, testMode ? 400 : 1000);
