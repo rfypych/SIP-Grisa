@@ -10,7 +10,7 @@ export default function SettingsPage() {
   const { 
     cameraSource, setCameraSource, 
     categories, addCategory, removeCategory,
-    cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime, successSoundUrl, successSoundEnabled,
+    cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, checkInOpenTime, presenceLimitTime, successSoundUrl, successSoundEnabled,
     exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode,
     fetchBackendSettings, updateBackendSettings
   } = useSettingsStore();
@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const [localMinGap, setLocalMinGap] = useState(minGapMinutes);
   const [localProgramStartDate, setLocalProgramStartDate] = useState(programStartDate);
   const [localAlphaLimitTime, setLocalAlphaLimitTime] = useState(alphaLimitTime);
+  const [localCheckInOpenTime, setLocalCheckInOpenTime] = useState(checkInOpenTime);
   const [localPresenceLimitTime, setLocalPresenceLimitTime] = useState(presenceLimitTime);
   const [localSuccessSoundUrl, setLocalSuccessSoundUrl] = useState(successSoundUrl);
   const [localSoundEnabled, setLocalSoundEnabled] = useState(successSoundEnabled);
@@ -48,6 +49,7 @@ export default function SettingsPage() {
     setLocalMinGap(minGapMinutes);
     setLocalProgramStartDate(programStartDate);
     setLocalAlphaLimitTime(alphaLimitTime);
+    setLocalCheckInOpenTime(checkInOpenTime);
     setLocalPresenceLimitTime(presenceLimitTime);
     setLocalSuccessSoundUrl(successSoundUrl);
     setLocalSoundEnabled(successSoundEnabled);
@@ -72,6 +74,7 @@ export default function SettingsPage() {
       min_gap_minutes: localMinGap,
       program_start_date: localProgramStartDate,
       alpha_limit_time: localAlphaLimitTime,
+      check_in_open_time: localCheckInOpenTime,
       presence_limit_time: localPresenceLimitTime,
       success_sound_url: localSuccessSoundUrl,
       success_sound_enabled: localSoundEnabled,
@@ -221,9 +224,22 @@ export default function SettingsPage() {
               <p className="text-[10px] text-slate-500 italic">Alpha tak dihitung sblm ini.</p>
             </div>
 
+             <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                 <Clock className="w-4 h-4 text-emerald-600" /> Jam Buka Presensi
+              </label>
+              <input
+                type="time"
+                value={localCheckInOpenTime}
+                onChange={(e) => setLocalCheckInOpenTime(e.target.value)}
+                className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-slate-900"
+              />
+              <p className="text-[10px] text-slate-500 italic">Sebelum jam ini = Belum waktunya presensi.</p>
+            </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-rose-600" /> Batas Presensi / Jam Pulang
+                 <Clock className="w-4 h-4 text-rose-600" /> Jam Tutup / Pulang
               </label>
               <input
                 type="time"
@@ -231,7 +247,7 @@ export default function SettingsPage() {
                 onChange={(e) => setLocalPresenceLimitTime(e.target.value)}
                 className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-rose-500 text-slate-900"
               />
-              <p className="text-[10px] text-slate-500 italic">Lewat jam ini = Check-out / Alpha.</p>
+              <p className="text-[10px] text-slate-500 italic">Lewat jam ini = bisa Check-out / Alpha.</p>
             </div>
             
             <div className="space-y-2 col-span-full md:col-span-2">

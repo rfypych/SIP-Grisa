@@ -47,6 +47,7 @@ class SystemSettings(BaseModel):
     export_signature_role: str
     alpha_limit_time: str
     presence_limit_time: str
+    check_in_open_time: Optional[str] = '07:00'
     google_api_key: Optional[str] = None
     test_mode: Optional[int] = 0
 
@@ -620,14 +621,15 @@ async def update_settings(settings: SystemSettings, request: Request, current_us
             cooldown_seconds=%s, min_gap_minutes=%s, checkout_start_hour=%s, program_start_date=%s, 
             success_sound_url=%s, success_sound_enabled=%s,
             export_location=%s, export_signature_enabled=%s, export_signature_name=%s, export_signature_role=%s,
-            alpha_limit_time=%s, presence_limit_time=%s, google_api_key=%s, test_mode=%s
+            alpha_limit_time=%s, presence_limit_time=%s, check_in_open_time=%s, google_api_key=%s, test_mode=%s
             WHERE id=1
             """,
             (
                 settings.cooldown_seconds, settings.min_gap_minutes, settings.checkout_start_hour, settings.program_start_date, 
                 settings.success_sound_url, 1 if settings.success_sound_enabled else 0,
                 settings.export_location, 1 if settings.export_signature_enabled else 0, settings.export_signature_name, settings.export_signature_role,
-                settings.alpha_limit_time, settings.presence_limit_time, settings.google_api_key, settings.test_mode
+                settings.alpha_limit_time, settings.presence_limit_time, settings.check_in_open_time or '07:00',
+                settings.google_api_key, settings.test_mode
             )
         )
         conn.commit()
@@ -975,117 +977,143 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                 # Gunakan face_system untuk mendeteksi
                 name, face_id, confidence = face_system.recognize_single_frame(frame, return_confidence=True)
                 if face_id and face_id != "Unknown":
-                    print(f"DEBUG: Detected {name} ({face_id}) with confidence {confidence}%")
                     conn = database.get_db_connection()
                     try:
-                        # Ambil Pengaturan Sistem dari DB untuk logika presensi
+                        # ── Ambil pengaturan sekali ──────────────────────────────
                         sys_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
-                        test_enabled = sys_settings['test_mode'] if sys_settings else 0
-                        
+                        test_enabled  = sys_settings['test_mode'] if sys_settings else 0
+                        cooldown_val  = sys_settings['cooldown_seconds'] if sys_settings else 60
+                        min_gap_val   = sys_settings['min_gap_minutes'] if sys_settings else 60
+                        open_time_val = (sys_settings['check_in_open_time'] or '07:00') if sys_settings else '07:00'
+                        limit_val     = (sys_settings['presence_limit_time'] or '14:00') if sys_settings else '14:00'
+
+                        # ── Waktu referensi (real / simulasi) ────────────────────
                         now = datetime.now()
-                        # Dukungan Simulasi Waktu di Test Mode
                         if test_enabled and data.get("simulate_time"):
                             try:
                                 now = datetime.strptime(data.get("simulate_time"), "%Y-%m-%d %H:%M:%S")
                             except:
                                 pass
-                        # Ambil Nama Asli dari Database
-                        emp_data = conn.execute("SELECT name FROM employees WHERE id=%s", (face_id,)).fetchone()
-                        real_name = emp_data['name'] if emp_data else face_id
 
-                        # Ambil Pengaturan Sistem dari DB untuk logika presensi
-                        sys_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
-                        cooldown_val = sys_settings['cooldown_seconds'] if sys_settings else 60
-                        min_gap_val = sys_settings['min_gap_minutes'] if sys_settings else 60
-                        presence_limit_val = sys_settings['presence_limit_time'] if sys_settings else '14:00'
-                        
-                        # print(f"DEBUG: Logic using cooldown={cooldown_val}, min_gap={min_gap_val}, limit={presence_limit_val}")
-                        
-                        today = now.strftime("%Y-%m-%d")
-                        time_now = now.strftime("%H:%M:%S")
-                        
-                        existing = conn.execute("SELECT * FROM attendance WHERE employee_id=%s AND date=%s", (face_id, today)).fetchone()
-                        
+                        today    = now.strftime("%Y-%m-%d")
+                        time_now = now.strftime("%H:%M")
+
+                        # ── Ambil data karyawan & absensi ──────────────────────
+                        emp_data  = conn.execute("SELECT name FROM employees WHERE id=%s", (face_id,)).fetchone()
+                        real_name = emp_data['name'] if emp_data else face_id
+                        existing  = conn.execute("SELECT * FROM attendance WHERE employee_id=%s AND date=%s", (face_id, today)).fetchone()
+
+                        # ── Cooldown per-orang ────────────────────────────────
                         last_seen = kiosk_cooldowns.get(face_id)
-                        remains = cooldown_val - (now - last_seen).total_seconds() if last_seen else 0
-                        
+                        remains   = cooldown_val - (now - last_seen).total_seconds() if last_seen else 0
+
                         debug_info = {
                             "confidence": confidence,
                             "cooldown_remains": round(max(0, remains), 1),
                             "test_mode": test_enabled,
-                            "simulated": "simulate_time" in data,
+                            "simulated": bool(data.get("simulate_time")),
+                            "check_in_open_time": open_time_val,
+                            "presence_limit_time": limit_val,
+                            "current_logic_time": time_now,
+                            "face_id": face_id,
                             "last_check_in": existing['check_in'] if existing else None,
                             "last_check_out": existing['check_out'] if existing else None,
-                            "current_logic_time": time_now,
-                            "face_id": face_id
                         }
 
+                        # ══ COOLDOWN ═════════════════════════════════════════
                         if cooldown_val > 0 and last_seen and remains > 0:
-                            # Kirim info cooldown agar frontend tau proses selesai tapi diabaikan
                             await websocket.send_json({"event": "on_cooldown", "face_id": face_id, "debug": debug_info})
+
+                        # ══ SKENARIO UTAMA ════════════════════════════════════
                         else:
-                            # Update cooldown
-                            kiosk_cooldowns[face_id] = now
-                            
-                            # JANGAN PROSES jika sudah ada status khusus (Sakit/Izin/Dinas)
+                            kiosk_cooldowns[face_id] = now  # reset cooldown timer
+
+                            # Status khusus (Sakit / Izin / Dinas) — abaikan presensi
                             if existing and existing['status'].lower() in ['sakit', 'izin', 'dinas']:
                                 await websocket.send_json({
-                                    "event": "searching", 
-                                    "message": f"{real_name} berstatus {existing['status']}",
+                                    "event": "blocked_status",
+                                    "name": real_name,
+                                    "status": existing['status'],
                                     "debug": debug_info
                                 })
-                            elif not existing:
-                                # Tentukan status berdasarkan jam alpha
-                                status = "hadir"
-                                if time_now > presence_limit_val:
-                                    status = "alfa"
-                                    
-                                # CHECK IN (JAM MASUK)
-                                conn.execute("INSERT INTO attendance (employee_id, date, check_in, status, recorded_by) VALUES (%s, %s, %s, %s, %s)", 
-                                             (face_id, today, time_now, status, gate_admin_id))
-                                conn.commit()
-                                await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkin", "status": status})
+
+                            # ── Sudah check-in DAN check-out ──────────────────
+                            elif existing and existing['check_in'] and existing['check_out']:
                                 await websocket.send_json({
-                                    "event": "success", 
-                                    "name": real_name, 
-                                    "id": face_id, 
-                                    "type": "checkin", 
-                                    "status": status,
+                                    "event": "already_checked_out",
+                                    "name": real_name,
+                                    "id": face_id,
+                                    "check_out": existing['check_out'],
                                     "debug": debug_info
                                 })
-                            else:
-                                # LOGIKA PINTAR CHECK OUT (JAM PULANG)
-                                check_in_str = existing['check_in']
+
+                            # ── Sudah check-in, belum check-out ───────────────
+                            elif existing and existing['check_in'] and not existing['check_out']:
+                                check_in_hm = existing['check_in'][:5]  # "HH:MM"
+                                # Cek apakah sudah waktunya pulang
                                 can_checkout = False
-                                
-                                if check_in_str:
-                                    try:
-                                        check_in_time = datetime.strptime(f"{today} {check_in_str}", "%Y-%m-%d %H:%M:%S")
-                                        minutes_diff = (now - check_in_time).total_seconds() / 60
-                                        
-                                        if minutes_diff >= min_gap_val or time_now >= presence_limit_val:
-                                            can_checkout = True
-                                    except:
-                                        if time_now >= presence_limit_val:
-                                            can_checkout = True
-                                
+                                try:
+                                    check_in_dt  = datetime.strptime(f"{today} {existing['check_in']}", "%Y-%m-%d %H:%M:%S")
+                                    minutes_diff = (now - check_in_dt).total_seconds() / 60
+                                    if minutes_diff >= min_gap_val or time_now >= limit_val:
+                                        can_checkout = True
+                                except:
+                                    if time_now >= limit_val:
+                                        can_checkout = True
+
                                 if can_checkout:
-                                    conn.execute("UPDATE attendance SET check_out=%s, recorded_by=%s WHERE employee_id=%s AND date=%s", (time_now, gate_admin_id, face_id, today))
+                                    # CHECK-OUT BERHASIL
+                                    conn.execute(
+                                        "UPDATE attendance SET check_out=%s, recorded_by=%s WHERE employee_id=%s AND date=%s",
+                                        (now.strftime("%H:%M:%S"), gate_admin_id, face_id, today)
+                                    )
                                     conn.commit()
                                     await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkout"})
                                     await websocket.send_json({
-                                        "event": "success", 
-                                        "name": real_name, 
-                                        "id": face_id, 
-                                        "type": "checkout",
+                                        "event": "checkout_success",
+                                        "name": real_name,
+                                        "id": face_id,
+                                        "check_out": now.strftime("%H:%M:%S"),
                                         "debug": debug_info
                                     })
                                 else:
-                                    # Checkout prematur: Beri tahu bahwa sudah absen
+                                    # Sudah masuk tapi belum waktunya pulang
                                     await websocket.send_json({
-                                        "event": "already_done", 
-                                        "name": real_name, 
+                                        "event": "already_checkin",
+                                        "name": real_name,
                                         "id": face_id,
+                                        "check_in": existing['check_in'],
+                                        "presence_limit": limit_val,
+                                        "debug": debug_info
+                                    })
+
+                            # ── Belum ada record hari ini ──────────────────────
+                            else:
+                                # Jika terlalu awal (sebelum jam buka)
+                                if time_now < open_time_val:
+                                    await websocket.send_json({
+                                        "event": "too_early",
+                                        "name": real_name,
+                                        "id": face_id,
+                                        "open_time": open_time_val,
+                                        "debug": debug_info
+                                    })
+                                else:
+                                    # CHECK-IN BERHASIL
+                                    status = "hadir" if time_now <= limit_val else "alfa"
+                                    conn.execute(
+                                        "INSERT INTO attendance (employee_id, date, check_in, status, recorded_by) VALUES (%s, %s, %s, %s, %s)",
+                                        (face_id, today, now.strftime("%H:%M:%S"), status, gate_admin_id)
+                                    )
+                                    conn.commit()
+                                    await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkin", "status": status})
+                                    await websocket.send_json({
+                                        "event": "checkin_success",
+                                        "name": real_name,
+                                        "id": face_id,
+                                        "type": "checkin",
+                                        "status": status,
+                                        "check_in": now.strftime("%H:%M:%S"),
                                         "debug": debug_info
                                     })
                     finally:

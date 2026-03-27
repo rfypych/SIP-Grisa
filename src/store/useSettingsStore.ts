@@ -13,6 +13,7 @@ interface SettingsState {
   checkoutStartHour: number;
   programStartDate: string;
   alphaLimitTime: string;
+  checkInOpenTime: string;
   presenceLimitTime: string;
   successSoundUrl: string;
   successSoundEnabled: boolean;
@@ -29,6 +30,7 @@ interface SettingsState {
     program_start_date: string, 
     alpha_limit_time: string,
     presence_limit_time: string,
+    check_in_open_time: string,
     success_sound_url: string, 
     success_sound_enabled: boolean,
     export_location: string,
@@ -55,6 +57,7 @@ export const useSettingsStore = create<SettingsState>()(
       checkoutStartHour: 8,
       programStartDate: '2026-03-01',
       alphaLimitTime: '07:30',
+      checkInOpenTime: '07:00',
       presenceLimitTime: '14:00',
       successSoundUrl: '/api/sounds/applepay.mp3',
       successSoundEnabled: true,
@@ -77,6 +80,7 @@ export const useSettingsStore = create<SettingsState>()(
             checkoutStartHour: data.checkout_start_hour,
             programStartDate: data.program_start_date || '2026-03-01',
             alphaLimitTime: data.alpha_limit_time || '07:30',
+            checkInOpenTime: data.check_in_open_time || '07:00',
             presenceLimitTime: data.presence_limit_time || '14:00',
             successSoundUrl: data.success_sound_url || '/api/sounds/applepay.mp3',
             successSoundEnabled: !!data.success_sound_enabled,
@@ -102,6 +106,7 @@ export const useSettingsStore = create<SettingsState>()(
         program_start_date: settingsPartial.program_start_date ?? state.programStartDate,
         alpha_limit_time: settingsPartial.alpha_limit_time ?? state.alphaLimitTime,
         presence_limit_time: settingsPartial.presence_limit_time ?? state.presenceLimitTime,
+        check_in_open_time: settingsPartial.check_in_open_time ?? state.checkInOpenTime,
         success_sound_url: settingsPartial.success_sound_url ?? state.successSoundUrl,
         success_sound_enabled: settingsPartial.success_sound_enabled ?? state.successSoundEnabled,
         export_location: settingsPartial.export_location ?? state.exportLocation,
@@ -128,6 +133,7 @@ export const useSettingsStore = create<SettingsState>()(
             minGapMinutes: fullSettings.min_gap_minutes,
             programStartDate: fullSettings.program_start_date,
             alphaLimitTime: fullSettings.alpha_limit_time,
+            checkInOpenTime: fullSettings.check_in_open_time,
             presenceLimitTime: fullSettings.presence_limit_time,
             successSoundUrl: fullSettings.success_sound_url,
             successSoundEnabled: !!fullSettings.success_sound_enabled,

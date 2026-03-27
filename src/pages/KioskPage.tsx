@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ScanFace, CheckCircle2, Clock, Calendar, Settings, Camera, Save, X, Zap, PartyPopper } from 'lucide-react';
+import { ScanFace, CheckCircle2, Clock, Calendar, Settings, Camera, Save, X, Zap, PartyPopper, LogOut, Bell, AlertTriangle, Home } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Link } from 'react-router-dom';
 import Webcam from 'react-webcam';
@@ -22,8 +22,9 @@ export default function KioskPage() {
   } = useSettingsStore();
   const { token } = useAuthStore();
   const [time, setTime] = useState(new Date());
-  const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'success' | 'already-done'>('idle');
+  const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'too-early' | 'checkin-success' | 'already-checkin' | 'checkout-success' | 'already-checked-out' | 'blocked'>('idle');
   const [scannedName, setScannedName] = useState('');
+  const [extraData, setExtraData] = useState<any>(null); // stores event-specific data (open_time, check_in, etc.)
   const [showLocalSettings, setShowLocalSettings] = useState(false);
   const [kioskName, setKioskName] = useState(() => localStorage.getItem('sip-grisa-kiosk-name') || 'Gerbang Utama');
   const [tempCamera, setTempCamera] = useState(cameraSource);
@@ -129,38 +130,39 @@ export default function KioskPage() {
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
       isProcessing = false;
+      
+      const MODAL_DURATION = 4000;
 
-      if (data.event === 'success') {
-        setScannedName(data.name);
-        setScanStatus('success');
-        
-        // Putar suara berhasil (jika diaktifkan secara global)
-        if (successSoundEnabled) {
-          const soundUrl = successSoundUrl || '/api/sounds/applepay.mp3';
-          const audio = new Audio(soundUrl);
-          audio.play().catch(e => console.error("Auto-play prevented:", e));
+      const showModal = (status: typeof scanStatus, name?: string, extra?: any) => {
+        if (name) setScannedName(name);
+        if (extra) setExtraData(extra);
+        setScanStatus(status);
+        if (successSoundEnabled && (status === 'checkin-success' || status === 'checkout-success')) {
+          const audio = new Audio(successSoundUrl || '/api/sounds/applepay.mp3');
+          audio.play().catch(() => {});
         }
+        setTimeout(() => setScanStatus('scanning'), MODAL_DURATION);
+      };
 
-        // Durasi tampilan sukses
-        const displayDuration = 3000; 
-        
-        setTimeout(() => {
-          setScanStatus('scanning');
-        }, displayDuration);
-      } else if (data.event === 'already_done') {
-        setScannedName(data.name);
-        setScanStatus('already-done');
-        
-        setTimeout(() => {
-          setScanStatus('scanning');
-        }, 3000);
+      if (data.event === 'checkin_success') {
+        showModal('checkin-success', data.name, { type: data.type, status: data.status, check_in: data.check_in });
+      } else if (data.event === 'checkout_success') {
+        showModal('checkout-success', data.name, { check_out: data.check_out });
+      } else if (data.event === 'too_early') {
+        showModal('too-early', data.name, { open_time: data.open_time });
+      } else if (data.event === 'already_checkin') {
+        showModal('already-checkin', data.name, { check_in: data.check_in, presence_limit: data.presence_limit });
+      } else if (data.event === 'already_checked_out') {
+        showModal('already-checked-out', data.name, { check_out: data.check_out });
+      } else if (data.event === 'blocked_status') {
+        showModal('blocked', data.name, { status: data.status });
       } else if (data.event === 'searching' || data.event === 'on_cooldown') {
-        setScanStatus(prev => (prev === 'success' || prev === 'already-done') ? prev : 'scanning');
+        setScanStatus(prev => (
+          ['checkin-success','checkout-success','too-early','already-checkin','already-checked-out','blocked'].includes(prev) ? prev : 'scanning'
+        ));
       }
 
-      if (data.debug) {
-        setDebugData(data.debug);
-      }
+      if (data.debug) setDebugData(data.debug);
     };
 
     const sendLoop = setInterval(() => {
@@ -306,110 +308,161 @@ export default function KioskPage() {
         </main>
       </div>
 
-      {/* Success Modal - Matching Dashboard Green Colors */}
+      {/* ── MODAL: Check-in Berhasil ✅ ── */}
       <AnimatePresence>
-        {scanStatus === 'success' && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-emerald-500/20 backdrop-blur-3xl p-6"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="bg-white rounded-[4rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.1)] p-16 flex flex-col items-center max-w-2xl w-full border border-white"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", damping: 10, stiffness: 100 }}
-                className="w-32 h-32 bg-emerald-500 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-emerald-200"
-              >
+        {scanStatus === 'checkin-success' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-emerald-500/20 backdrop-blur-3xl p-6">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-[4rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.1)] p-16 flex flex-col items-center max-w-2xl w-full border border-white">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
+                transition={{ type: 'spring', damping: 10, stiffness: 100 }}
+                className="w-32 h-32 bg-emerald-500 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-emerald-200">
                 <CheckCircle2 className="w-16 h-16 text-white" />
               </motion.div>
-
-              <p className="text-emerald-500 text-sm font-black uppercase tracking-[0.4em] mb-4">Absensi Berhasil</p>
-              
+              <p className="text-emerald-500 text-sm font-black uppercase tracking-[0.4em] mb-4">
+                {extraData?.status === 'alfa' ? '⚠️ Terlambat — Presensi Berhasil' : 'Presensi Masuk Berhasil ✅'}
+              </p>
               <div className="text-center mb-12">
-                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Halo, Selamat Datang</span>
-                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">
-                   {scannedName}
-                </h3>
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Selamat Datang,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">{scannedName}</h3>
               </div>
-
               <div className="flex items-center gap-6 bg-slate-50 px-10 py-5 rounded-[2rem] border border-slate-100">
-                <span className="text-slate-900 font-bold text-2xl tabular-nums tracking-tighter">
-                  {formattedTime}
-                </span>
+                <span className="text-slate-900 font-bold text-2xl tabular-nums tracking-tighter">{extraData?.check_in || formattedTime}</span>
                 <div className="w-1.5 h-1.5 rounded-full bg-slate-200" />
-                <span className="text-slate-500 text-xs font-bold uppercase tracking-widest text-center">
-                  Sistem Informasi Presensi Grisa
-                </span>
+                <span className="text-slate-500 text-xs font-bold uppercase tracking-widest">Sistem Presensi Grisa</span>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Already Done Modal - Celebration Theme */}
+      {/* ── MODAL: Check-out Berhasil 🏠 ── */}
       <AnimatePresence>
-        {scanStatus === 'already-done' && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-emerald-500/10 backdrop-blur-3xl p-6"
-          >
-            {/* Confetti-like floating particles */}
-            {[...Array(12)].map((_, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, scale: 0, x: 0, y: 0 }}
-                animate={{ 
-                  opacity: [0, 1, 0], 
-                  scale: [0, 1.5, 0.5],
-                  x: (i % 2 === 0 ? 1 : -1) * (Math.random() * 300 + 100),
-                  y: (i % 3 === 0 ? 1 : -1) * (Math.random() * 300 + 100),
-                }}
-                transition={{ duration: 3, repeat: Infinity, delay: i * 0.2 }}
-                className={`absolute w-3 h-3 rounded-full ${i % 3 === 0 ? 'bg-amber-400' : i % 3 === 1 ? 'bg-emerald-400' : 'bg-blue-400'}`}
-              />
-            ))}
-
-            <motion.div
-              initial={{ scale: 0.9, y: 30, rotate: -2 }}
-              animate={{ scale: 1, y: 0, rotate: 0 }}
-              className="bg-white rounded-[4rem] shadow-[0_50px_100px_-20px_rgba(16,185,129,0.2)] p-16 flex flex-col items-center max-w-2xl w-full border border-white relative overflow-hidden"
-            >
-              {/* Decorative Background Glow */}
-              <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-100 rounded-full blur-3xl opacity-50" />
-              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-amber-100 rounded-full blur-3xl opacity-50" />
-
-              <motion.div
-                initial={{ scale: 0, rotate: -45 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", damping: 12, stiffness: 200, delay: 0.2 }}
-                className="w-32 h-32 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-2xl shadow-emerald-200 relative z-10"
-              >
-                <PartyPopper className="w-16 h-16 text-white" />
+        {scanStatus === 'checkout-success' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-blue-500/20 backdrop-blur-3xl p-6">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-[4rem] shadow-2xl p-16 flex flex-col items-center max-w-2xl w-full">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
+                transition={{ type: 'spring', damping: 10, stiffness: 100 }}
+                className="w-32 h-32 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-blue-200">
+                <Home className="w-16 h-16 text-white" />
               </motion.div>
+              <p className="text-blue-500 text-sm font-black uppercase tracking-[0.4em] mb-4">Presensi Pulang Berhasil 🏠</p>
+              <div className="text-center mb-12">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Selamat Pulang,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">{scannedName}</h3>
+              </div>
+              <div className="flex items-center gap-6 bg-blue-50 px-10 py-5 rounded-[2rem] border border-blue-100">
+                <span className="text-blue-700 font-bold text-2xl tabular-nums tracking-tighter">{extraData?.check_out || formattedTime}</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-200" />
+                <span className="text-blue-500 text-xs font-bold uppercase tracking-widest">Sampai Jumpa Besok! 👋</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              <p className="text-emerald-600 text-sm font-black uppercase tracking-[0.4em] mb-4 relative z-10">Sudah Absensi</p>
-              
-              <div className="text-center mb-12 relative z-10">
-                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Mantap,</span>
-                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight leading-tight">
-                   {scannedName}
-                </h3>
-                <p className="text-slate-500 mt-6 font-bold text-lg max-w-sm mx-auto">
-                  Anda sudah melakukan absensi hari ini. 
-                  <span className="text-emerald-500 block">Terima kasih atas kedisiplinannya!</span>
+      {/* ── MODAL: Belum Waktunya Presensi ⛔ ── */}
+      <AnimatePresence>
+        {scanStatus === 'too-early' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-orange-500/20 backdrop-blur-3xl p-6">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-[4rem] shadow-2xl p-16 flex flex-col items-center max-w-2xl w-full">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
+                transition={{ type: 'spring', damping: 10, stiffness: 100 }}
+                className="w-32 h-32 bg-gradient-to-br from-orange-400 to-red-500 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-orange-200">
+                <Clock className="w-16 h-16 text-white" />
+              </motion.div>
+              <p className="text-orange-500 text-sm font-black uppercase tracking-[0.4em] mb-4">Belum Waktunya Presensi ⛔</p>
+              <div className="text-center mb-12">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Hai,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">{scannedName}</h3>
+                <p className="text-slate-500 mt-6 font-bold text-lg">
+                  Presensi dibuka pukul
+                  <span className="text-orange-500 font-black ml-2">{extraData?.open_time || '07:00'}</span>
                 </p>
               </div>
+              <div className="flex items-center gap-6 bg-orange-50 px-10 py-5 rounded-[2rem] border border-orange-100">
+                <span className="text-orange-700 font-bold uppercase tracking-widest text-xs">Silakan kembali saat waktunya ⏰</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              <div className="flex items-center gap-6 bg-emerald-50 px-10 py-5 rounded-[2rem] border border-emerald-100 relative z-10">
-                 <span className="text-emerald-700 font-black text-xs uppercase tracking-widest">Ayo Semangat Beraktivitas! 🚀</span>
+      {/* ── MODAL: Sudah Masuk, Belum Waktunya Pulang 🔔 ── */}
+      <AnimatePresence>
+        {scanStatus === 'already-checkin' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-amber-500/15 backdrop-blur-3xl p-6">
+            {[...Array(8)].map((_, i) => (
+              <motion.div key={i}
+                initial={{ opacity: 0, scale: 0 }}
+                animate={{ opacity: [0, 1, 0], scale: [0, 1.5, 0.5], x: (i%2===0?1:-1)*(Math.random()*200+80), y: (i%3===0?1:-1)*(Math.random()*200+80) }}
+                transition={{ duration: 3, repeat: Infinity, delay: i * 0.3 }}
+                className={`absolute w-3 h-3 rounded-full ${i%2===0 ? 'bg-amber-400' : 'bg-yellow-300'}`}
+              />
+            ))}
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-[4rem] shadow-2xl p-16 flex flex-col items-center max-w-2xl w-full relative overflow-hidden">
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-amber-100 rounded-full blur-3xl opacity-40" />
+              <motion.div initial={{ scale: 0, rotate: -30 }} animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: 'spring', damping: 12, stiffness: 200, delay: 0.2 }}
+                className="w-32 h-32 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-amber-200 relative z-10">
+                <Bell className="w-16 h-16 text-white" />
+              </motion.div>
+              <p className="text-amber-600 text-sm font-black uppercase tracking-[0.4em] mb-4 z-10">Sudah Presensi Masuk 👋</p>
+              <div className="text-center mb-12 z-10">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Mantap,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">{scannedName}</h3>
+                <p className="text-slate-500 mt-6 font-bold text-base max-w-sm mx-auto">
+                  Anda bisa presensi pulang setelah pukul
+                  <span className="text-amber-500 font-black ml-2">{extraData?.presence_limit || '14:00'}</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-6 bg-amber-50 px-10 py-5 rounded-[2rem] border border-amber-100 z-10">
+                <span className="text-amber-700 font-bold text-xs uppercase tracking-widest">Masuk pukul {extraData?.check_in?.slice(0,5) || '-'} • Semangat Beraktivitas! 🚀</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── MODAL: Sudah Presensi Pulang 👋 ── */}
+      <AnimatePresence>
+        {scanStatus === 'already-checked-out' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-violet-500/15 backdrop-blur-3xl p-6">
+            {[...Array(12)].map((_, i) => (
+              <motion.div key={i}
+                initial={{ opacity: 0, scale: 0 }}
+                animate={{ opacity: [0, 1, 0], scale: [0, 1.5, 0.5], x: (i%2===0?1:-1)*(Math.random()*300+100), y: (i%3===0?1:-1)*(Math.random()*300+100) }}
+                transition={{ duration: 3, repeat: Infinity, delay: i * 0.2 }}
+                className={`absolute w-3 h-3 rounded-full ${i%3===0?'bg-violet-400':i%3===1?'bg-purple-300':'bg-fuchsia-400'}`}
+              />
+            ))}
+            <motion.div initial={{ scale: 0.9, y: 30, rotate: -2 }} animate={{ scale: 1, y: 0, rotate: 0 }}
+              className="bg-white rounded-[4rem] shadow-2xl p-16 flex flex-col items-center max-w-2xl w-full relative overflow-hidden">
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-violet-100 rounded-full blur-3xl opacity-50" />
+              <motion.div initial={{ scale: 0, rotate: -45 }} animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: 'spring', damping: 12, stiffness: 200, delay: 0.2 }}
+                className="w-32 h-32 bg-gradient-to-br from-violet-500 to-purple-600 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-2xl shadow-violet-200 z-10">
+                <PartyPopper className="w-16 h-16 text-white" />
+              </motion.div>
+              <p className="text-violet-600 text-sm font-black uppercase tracking-[0.4em] mb-4 z-10">Sudah Presensi Pulang 👋</p>
+              <div className="text-center mb-12 z-10">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Dadah,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight leading-tight">{scannedName}</h3>
+                <p className="text-slate-500 mt-6 font-bold text-lg max-w-sm mx-auto">
+                  Anda sudah presensi pulang pukul <span className="text-violet-500">{extraData?.check_out?.slice(0,5) || '-'}</span>.
+                  <span className="text-violet-500 block mt-1">Sampai jumpa besok!</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-6 bg-violet-50 px-10 py-5 rounded-[2rem] border border-violet-100 z-10">
+                <span className="text-violet-700 font-black text-xs uppercase tracking-widest">Istirahat yang Baik! 🌙</span>
               </div>
             </motion.div>
           </motion.div>
