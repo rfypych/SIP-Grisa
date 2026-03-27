@@ -130,6 +130,31 @@ flowchart TD
 
 ---
 
+## ⚙️ Konfigurasi Environment (`.env`)
+
+Sebelum menjalankan aplikasi, Anda perlu menyiapkan file `.env` untuk mengatur koneksi database dan API Key. Salin file contoh yang tersedia:
+
+```bash
+cp .env.example .env
+```
+
+### Variabel yang Tersedia:
+
+| Variabel | Deskripsi | Default (Docker) |
+|---|---|---|
+| `GEMINI_API_KEY` | Key untuk fitur AI Recovery (Opsional) | `""` |
+| `DB_HOST` | Host database MySQL | `db` (service name) |
+| `DB_USER` | Username MySQL | `root` |
+| `DB_PASS` | Password MySQL | (Kosong) |
+| `DB_NAME` | Nama database | `sip_grisa` |
+| `MYSQL_ROOT_PASSWORD` | Password root untuk container MySQL | `grisa_secure_2026` |
+| `SECRET_KEY` | Key rahasia untuk enkripsi JWT | `random_string` |
+
+> [!TIP]
+> Jika menggunakan **Docker**, Anda cukup fokus pada `GEMINI_API_KEY` dan `MYSQL_ROOT_PASSWORD`. Sisanya sudah terkonfigurasi otomatis antar-container.
+
+---
+
 ## 🚀 Cara Menjalankan Aplikasi
 
 ### 🐳 Opsi 1: Docker (Direkomendasikan untuk Server)
