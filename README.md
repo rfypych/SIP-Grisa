@@ -128,22 +128,81 @@ flowchart TD
 
 ---
 
+---
+
 ## 🚀 Cara Menjalankan Aplikasi
 
-1.  **Backend (FastAPI)**
-    ```bash
-    pip install -r requirements.txt
-    python api.py
-    ```
-    Atau via Uvicorn langsung:
-    ```bash
-    uvicorn api:app --host 0.0.0.0 --port 8000
-    ```
+### 🐳 Opsi 1: Docker (Direkomendasikan untuk Server)
 
-2.  **Frontend (React/Vite)**
-    ```bash
-    npm install
-    npm run dev &
-    ```
+Cara paling mudah dan stabil untuk deploy di server produksi.
 
-*Note: Database akan terinisialisasi dan dibuat otomatis ke dalam MySQL saat pertama kali backend (`api.py`) dihidupkan.*
+**Prasyarat:** Pastikan `docker` dan `docker compose` sudah terinstall di server.
+
+**Langkah-langkah:**
+
+```bash
+# 1. Clone repository (ambil dari branch utama)
+git clone -b feat/smart-logic-overhaul-v6 https://github.com/rfypych/SIP-Grisa.git
+cd SIP-Grisa
+
+# 2. (Opsional) Sesuaikan konfigurasi environment
+#    Salin file contoh, lalu edit password/API key jika perlu
+cp .env.example .env
+nano .env
+
+# 3. Build dan jalankan semua service (MySQL + Backend + Frontend)
+docker compose up -d --build
+
+# 4. Cek status container (pastikan semuanya 'Up')
+docker compose ps
+
+# 5. Lihat log backend (berguna untuk debug saat pertama jalan)
+docker compose logs -f backend
+```
+
+**Akses Aplikasi:**
+- 🌐 **Frontend (Kiosk/Admin)**: `http://[IP-SERVER]`
+- ⚙️ **Backend API**: `http://[IP-SERVER]:8000`
+
+> ⚠️ **Catatan**: Build pertama kali memerlukan waktu **5–15 menit** karena mengkompilasi library `dlib` dari source code. Build selanjutnya akan sangat cepat karena di-cache Docker.
+
+**Perintah berguna lainnya:**
+```bash
+# Menghentikan semua service
+docker compose down
+
+# Melihat log semua service
+docker compose logs -f
+
+# Restart hanya backend (setelah update kode)
+docker compose up -d --build backend
+
+# Menghapus semua termasuk data volume (HATI-HATI: data wajah hilang!)
+docker compose down -v
+```
+
+---
+
+### 🛠️ Opsi 2: Manual (Untuk Pengembangan Lokal)
+
+**Prasyarat:** Python 3.10+, Node.js 18+, MySQL Server.
+
+**1. Backend (FastAPI)**
+```bash
+# Install dependencies Python
+pip install -r requirements.txt
+
+# Jalankan server
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**2. Frontend (React/Vite)**
+```bash
+# Install dependencies Node
+npm install
+
+# Jalankan dev server (akses di http://localhost:3001)
+npm run dev
+```
+
+> *Database `sip_grisa` akan dibuat dan diinisialisasi secara otomatis oleh backend saat pertama kali dijalankan.*
