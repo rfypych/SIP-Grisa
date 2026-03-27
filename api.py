@@ -1311,3 +1311,8 @@ async def get_attendance_logs(current_user: AdminUser = Depends(get_superadmin))
         return logs
     finally:
         conn.close()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+
