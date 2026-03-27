@@ -1,3 +1,4 @@
+import os
 import pymysql
 import pymysql.cursors
 from passlib.context import CryptContext
@@ -8,10 +9,13 @@ import warnings
 # Mengabaikan warning jika table/DB sudah ada
 warnings.filterwarnings('ignore', category=pymysql.Warning)
 
-DB_HOST = "172.24.0.1"
-DB_USER = "root"
-DB_PASS = ""
-DB_NAME = "sip_grisa"
+# Baca konfigurasi dari environment variable (Docker-ready)
+# Fallback ke nilai lokal jika env var tidak di-set
+DB_HOST = os.environ.get("DB_HOST", "172.24.0.1")
+DB_USER = os.environ.get("DB_USER", "root")
+DB_PASS = os.environ.get("DB_PASS", "")
+DB_NAME = os.environ.get("DB_NAME", "sip_grisa")
+
 
 def init_db():
     try:
