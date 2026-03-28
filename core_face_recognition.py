@@ -60,8 +60,18 @@ class FaceAttendanceSystem:
             face_locations = face_recognition.face_locations(rgb_img, model="hog")
             
             if not face_locations:
-                print(f"[ERROR] No face detected in {path}")
-                return False
+                # Coba dengan upsampling untuk wajah yang sudah di-crop terlalu ketat
+                face_locations = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=2, model="hog")
+                
+            if not face_locations:
+                h, w, _ = img.shape
+                # Jika masih gagal namun rasio aspek hampir kotak (misal hasil AI Auto-Crop sebelumnya)
+                if 0.8 <= (w / h if h > 0 else 0) <= 1.2 and w < 800:
+                    # Gunakan hampir seluruh gambar sebagai bounding box wajah
+                    margin = int(min(w, h) * 0.1)
+                    face_locations = [(margin, w - margin, h - margin, margin)]
+                else:
+                    return False
                 
             # Ambil wajah pertama (asumsi 1 foto = 1 orang)
             top, right, bottom, left = face_locations[0]
@@ -146,11 +156,17 @@ class FaceAttendanceSystem:
         if not self.known_face_encodings:
             return ("No Data", None, 0) if return_confidence else ("No Data", None)
 
-        # Perkecil frame sedikit untuk performa, tapi jangan terlalu kecil agar akurat (0.5x)
-        small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+        # Optimasi: Gunakan lebar tetap (misal 400px) agar performa konsisten di berbagai resolusi input
+        h, w = frame.shape[:2]
+        target_width = 400
+        ratio = target_width / w
+        target_height = int(h * ratio)
+        
+        small_frame = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
         rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-
-        face_locations = face_recognition.face_locations(rgb_small_frame, model="hog")
+        
+        # Optimasi: number_of_times_to_upsample=0 lebih cepat untuk CPU
+        face_locations = face_recognition.face_locations(rgb_small_frame, number_of_times_to_upsample=0, model="hog")
         face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
         if not face_encodings:
