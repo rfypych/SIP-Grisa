@@ -1,23 +1,24 @@
 version: '3.8'
 
 services:
-
-  # ===== DATABASE =====
+  # ===== DATABASE (MySQL 8.0) =====
   db:
     image: mysql:8.0
     container_name: sip_grisa_db
-    restart: always
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-grisa_secure_2026}
       MYSQL_DATABASE: sip_grisa
     volumes:
       - sip_grisa_db_data:/var/lib/mysql
-    ports:
-      - "3306:3306"
+    # No ports exposed to host for security; only backend can access it
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 10s
-      retries: 5
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # ===== BACKEND (FastAPI) =====
   backend:
@@ -25,38 +26,40 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: sip_grisa_backend
-    restart: always
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      # Override host DB agar mengarah ke service 'db' di Docker network
       DB_HOST: db
-      DB_USER: ${MYSQL_USER:-root}
+      DB_USER: root
       DB_PASS: ${MYSQL_ROOT_PASSWORD:-grisa_secure_2026}
       DB_NAME: sip_grisa
-      SECRET_KEY: ${SECRET_KEY:-change_this_secret_key_in_production}
+      SECRET_KEY: ${SECRET_KEY:-grisa_super_secret_2026_xyz}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
-      # Mount folder data agar file wajah & suara tidak hilang saat container restart
-      - sip_grisa_face_data:/app/data
-      - sip_grisa_uploads:/app/temp_uploads
+      # Data Persistence
+      - sip_grisa_data:/app/data
+      - sip_grisa_temp:/app/temp_uploads
+    # Backend port is exposed for direct API access if needed, 
+    # but frontend usually proxies via Nginx on port 80
     ports:
       - "8000:8000"
 
-  # ===== FRONTEND (React + Nginx) =====
+  # ===== FRONTEND (Nginx) =====
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: sip_grisa_frontend
-    restart: always
+    restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "80:80"
+    # Shared logs or temp data can be mounted if necessary
 
 volumes:
   sip_grisa_db_data:
-  sip_grisa_face_data:
-  sip_grisa_uploads:
+  sip_grisa_data:
+  sip_grisa_temp:

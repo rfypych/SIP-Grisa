@@ -348,59 +348,67 @@ export default function DocumentationPage() {
         </DocSection>
 
         {/* Smart Logic */}
-        <DocSection id="logic" title="7. Smart Logic Definitions" icon={Settings}>
-          <DocCard title="Konfigurasi Presensi Pintar (Smart Logic)" icon={Zap}>
-            <div className="space-y-6">
-              <p className="text-xs text-slate-500">Logika otomatis untuk menjamin validitas data dan kenyamanan antrean di Kiosk.</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
-                  <h5 className="font-bold text-xs text-emerald-800 mb-2 flex items-center gap-2">
-                    <Clock className="w-3.5 h-3.5" /> Cooldown (Detik)
-                  </h5>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Mencegah deteksi ganda untuk orang yang sama. Jika diatur <b>60 detik</b>, maka setelah absen, wajah karyawan tersebut akan diabaikan oleh sistem selama 1 menit ke depan.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-purple-50/50 rounded-2xl border border-purple-100">
-                  <h5 className="font-bold text-xs text-purple-800 mb-2 flex items-center gap-2">
-                    <Calendar className="w-3.5 h-3.5" /> Mulai Program
-                  </h5>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Tanggal efektif sistem mulai bekerja (<b>12/03/2026</b>). Perhitungan <b>Alpha</b> tidak akan dihitung sebelum tanggal ini.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
-                  <h5 className="font-bold text-xs text-blue-800 mb-2 flex items-center gap-2">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Jeda Plg. Min (Menit)
-                  </h5>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Durasi minimal kerja sebelum fungsi <b>Check-out</b> aktif (<b>60 menit</b>). Mencegah salah absen sesaat setelah masuk.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-orange-50/50 rounded-2xl border border-orange-100">
-                  <h5 className="font-bold text-xs text-orange-800 mb-2 flex items-center gap-2">
-                    <Zap className="w-3.5 h-3.5" /> Jam Bebas Pulang
-                  </h5>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    "Golden Hour" (<b>11:00</b>). Setelah jam ini, batasan <i>Jeda Plg. Min</i> tidak berlaku lagi dan sistem mengizinkan Check-out instan.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-rose-50/50 rounded-2xl border border-rose-100">
-                  <h5 className="font-bold text-xs text-rose-800 mb-2 flex items-center gap-2">
-                    <Clock className="w-3.5 h-3.5" /> Jam Batas Alpha
-                  </h5>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Batas toleransi (<b>05:30</b>). Karyawan yang absen melewati jam ini akan otomatis ditandai sebagai <b>Alfa</b>.
-                  </p>
+        <DocSection id="logic" title="7. Konfigurasi Sistem & Smart Logic" icon={Settings}>
+          <div className="grid grid-cols-1 gap-8">
+            <DocCard title="Pemisahan Lingkungan: Normal vs Mode Pengujian" icon={Zap}>
+              <div className="space-y-4 text-xs">
+                <p>Sistem memiliki dua lapisan pengaturan yang bekerja secara independen untuk menjaga stabilitas operasional:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                    <h5 className="font-bold text-emerald-800 mb-2">Mode Normal (Operasional)</h5>
+                    <p className="text-emerald-700">Digunakan untuk presensi harian asli. Pengaturan ini sangat krusial dan tidak boleh sering diubah.</p>
+                  </div>
+                  <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                    <h5 className="font-bold text-amber-800 mb-2">Mode Pengujian (Debug)</h5>
+                    <p className="text-amber-700">Lingkungan simulasi. Saat aktif, Kiosk akan menggunakan setelan khusus (Cooldown, Jeda, Jam) yang terpisah dari data asli.</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          </DocCard>
+            </DocCard>
+
+            <DocCard title="Logika Presensi Pintar (Smart Logic)" icon={Monitor}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-2"><Clock className="w-3.5 h-3.5 text-emerald-500" /> Cooldown</h5>
+                  <p className="text-[10px] text-slate-500">Jeda (detik) agar sistem tidak mencatat wajah yang sama berulang kali dalam waktu singkat (Anti-Spam).</p>
+                </div>
+                <div className="space-y-2">
+                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Jeda Plg. Min</h5>
+                  <p className="text-[10px] text-slate-500">Durasi wajib (menit) bagi pegawai untuk berada di lingkungan kerja sebelum fungsi <b>Check-out</b> aktif.</p>
+                </div>
+                <div className="space-y-2">
+                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-2"><Zap className="w-3.5 h-3.5 text-amber-500" /> Wajib Jeda (Enforce)</h5>
+                  <p className="text-[10px] text-slate-500">Jika <b>AKTIF</b>, pegawai yang terlambat datang TETAP WAJIB memenuhi <i>Jeda Min</i> meskipun waktu sudah melewati Jam Pulang.</p>
+                </div>
+                <div className="space-y-2">
+                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-2"><Monitor className="w-3.5 h-3.5 text-blue-500" /> Jam Buka Presensi</h5>
+                  <p className="text-[10px] text-slate-500">Batas waktu paling awal Kiosk menerima presensi masuk. Sebelum jam ini, wajah akan diabaikan/ditolak.</p>
+                </div>
+                <div className="space-y-2">
+                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-2"><Clock className="w-3.5 h-3.5 text-rose-500" /> Jam Tutup / Pulang</h5>
+                  <p className="text-[10px] text-slate-500">Waktu dimulainya kepulangan massal. Bisa dinonaktifkan jika ingin hanya menggunakan <i>Jeda Min</i> sebagai syarat pulang.</p>
+                </div>
+                <div className="space-y-2">
+                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-2"><Calendar className="w-3.5 h-3.5 text-purple-500" /> Mulai Program</h5>
+                  <p className="text-[10px] text-slate-500">Tanggal awal sistem dihitung aktif. Absen di luar (sebelum) tanggal ini tidak akan dihitung Alpha.</p>
+                </div>
+              </div>
+            </DocCard>
+
+            <DocCard title="Integrasi AI & Keamanan" icon={Key}>
+              <div className="space-y-4 text-xs">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <h5 className="font-bold text-slate-800 mb-2">Gemini API Key (Global)</h5>
+                  <p className="text-slate-600 mb-3">Kunci akses untuk fitur <b>AI Recovery</b> dan analisis foto daftar hadir. Keamanan kunci ini dijamin:</p>
+                  <ul className="list-disc list-inside space-y-1 text-slate-500">
+                    <li>Disimpan terenkripsi di database MySQL (System Settings).</li>
+                    <li>Sistem memprioritaskan kunci di database daripada file <code>.env</code>.</li>
+                    <li>Input di dashboard disembunyikan (type password) untuk keamanan visual.</li>
+                  </ul>
+                </div>
+              </div>
+            </DocCard>
+          </div>
         </DocSection>
 
         {/* Technical */}

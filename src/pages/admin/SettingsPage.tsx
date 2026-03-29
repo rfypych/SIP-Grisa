@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Camera, Save, CheckCircle2, Tags, Plus, Trash2, Clock, Zap, ShieldCheck, Calendar, Volume2, Play, RotateCcw, Upload, MapPin, FileText } from 'lucide-react';
+import { Camera, Save, CheckCircle2, Tags, Plus, Trash2, Clock, Zap, ShieldCheck, Calendar, Volume2, Play, RotateCcw, Upload, MapPin, FileText, AlertTriangle } from 'lucide-react';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Badge } from '../../components/ui/badge';
@@ -12,6 +12,8 @@ export default function SettingsPage() {
     categories, addCategory, removeCategory,
     cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, checkInOpenTime, presenceLimitTime, successSoundUrl, successSoundEnabled,
     exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode,
+    testCooldownSeconds, testMinGapMinutes, testPresenceLimitTime, testCheckInOpenTime,
+    presenceLimitEnabled, testPresenceLimitEnabled, enforceMinGap, testEnforceMinGap,
     fetchBackendSettings, updateBackendSettings
   } = useSettingsStore();
   const { token } = useAuthStore();
@@ -31,6 +33,17 @@ export default function SettingsPage() {
   const [localExportSignatureRole, setLocalExportSignatureRole] = useState(exportSignatureRole);
   const [localGoogleApiKey, setLocalGoogleApiKey] = useState(googleApiKey);
   const [localTestMode, setLocalTestMode] = useState(testMode);
+
+  const [localPresenceLimitEnabled, setLocalPresenceLimitEnabled] = useState(presenceLimitEnabled);
+  const [localEnforceMinGap, setLocalEnforceMinGap] = useState(enforceMinGap);
+
+  // Local state for Test Settings
+  const [localTestCooldown, setLocalTestCooldown] = useState(testCooldownSeconds);
+  const [localTestMinGap, setLocalTestMinGap] = useState(testMinGapMinutes);
+  const [localTestCheckInOpenTime, setLocalTestCheckInOpenTime] = useState(testCheckInOpenTime);
+  const [localTestPresenceLimitTime, setLocalTestPresenceLimitTime] = useState(testPresenceLimitTime);
+  const [localTestPresenceLimitEnabled, setLocalTestPresenceLimitEnabled] = useState(testPresenceLimitEnabled);
+  const [localTestEnforceMinGap, setLocalTestEnforceMinGap] = useState(testEnforceMinGap);
 
   
   const [isSaved, setIsSaved] = useState(false);
@@ -59,7 +72,16 @@ export default function SettingsPage() {
     setLocalExportSignatureRole(exportSignatureRole);
     setLocalGoogleApiKey(googleApiKey);
     setLocalTestMode(testMode);
-  }, [cameraSource, cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime, successSoundUrl, successSoundEnabled, exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode]);
+    setLocalPresenceLimitEnabled(presenceLimitEnabled);
+    setLocalEnforceMinGap(enforceMinGap);
+
+    setLocalTestCooldown(testCooldownSeconds);
+    setLocalTestMinGap(testMinGapMinutes);
+    setLocalTestCheckInOpenTime(testCheckInOpenTime);
+    setLocalTestPresenceLimitTime(testPresenceLimitTime);
+    setLocalTestPresenceLimitEnabled(testPresenceLimitEnabled);
+    setLocalTestEnforceMinGap(testEnforceMinGap);
+  }, [cameraSource, cooldownSeconds, minGapMinutes, programStartDate, alphaLimitTime, presenceLimitTime, successSoundUrl, successSoundEnabled, exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole, googleApiKey, testMode, testCooldownSeconds, testMinGapMinutes, testPresenceLimitTime, testCheckInOpenTime, presenceLimitEnabled, testPresenceLimitEnabled, enforceMinGap, testEnforceMinGap]);
 
   const handleSaveLocal = () => {
     setCameraSource(localSource);
@@ -83,7 +105,15 @@ export default function SettingsPage() {
       export_signature_name: localExportSignatureName,
       export_signature_role: localExportSignatureRole,
       google_api_key: localGoogleApiKey,
-      test_mode: localTestMode ? 1 : 0
+      test_mode: localTestMode ? 1 : 0,
+      test_cooldown_seconds: localTestCooldown,
+      test_min_gap_minutes: localTestMinGap,
+      test_check_in_open_time: localTestCheckInOpenTime,
+      test_presence_limit_time: localTestPresenceLimitTime,
+      presence_limit_enabled: localPresenceLimitEnabled ? 1 : 0,
+      test_presence_limit_enabled: localTestPresenceLimitEnabled ? 1 : 0,
+      enforce_min_gap: localEnforceMinGap ? 1 : 0,
+      test_enforce_min_gap: localTestEnforceMinGap ? 1 : 0
     });
     if (success) {
       setIsBackendSaved(true);
@@ -187,26 +217,34 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-emerald-600" /> Cooldown (Detik)
+                 <Clock className="w-4 h-4 text-emerald-600" /> Cooldown (Detik) {localTestMode && <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-600">DEBUG</Badge>}
               </label>
               <input
                 type="number"
-                value={localCooldown}
-                onChange={(e) => setLocalCooldown(parseInt(e.target.value) || 0)}
-                className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                value={localTestMode ? localTestCooldown : localCooldown}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 0;
+                  if (localTestMode) setLocalTestCooldown(val);
+                  else setLocalCooldown(val);
+                }}
+                className={`w-full h-10 px-3 rounded-md border focus:ring-2 text-slate-900 ${localTestMode ? 'border-amber-300 focus:ring-amber-500 bg-amber-50/30' : 'border-slate-300 focus:ring-emerald-500'}`}
               />
               <p className="text-[10px] text-slate-500 italic">Jeda antar deteksi yg sama.</p>
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <ShieldCheck className="w-4 h-4 text-emerald-600" /> Jeda Plg. Min (Menit)
+                 <ShieldCheck className="w-4 h-4 text-emerald-600" /> Jeda Plg. Min (Menit) {localTestMode && <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-600">DEBUG</Badge>}
               </label>
               <input
                 type="number"
-                value={localMinGap}
-                onChange={(e) => setLocalMinGap(parseInt(e.target.value) || 0)}
-                className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                value={localTestMode ? localTestMinGap : localMinGap}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 0;
+                  if (localTestMode) setLocalTestMinGap(val);
+                  else setLocalMinGap(val);
+                }}
+                className={`w-full h-10 px-3 rounded-md border focus:ring-2 text-slate-900 ${localTestMode ? 'border-amber-300 focus:ring-amber-500 bg-amber-50/30' : 'border-slate-300 focus:ring-emerald-500'}`}
               />
               <p className="text-[10px] text-slate-500 italic">Menit min sebelum bisa Pulang.</p>
             </div>
@@ -226,33 +264,84 @@ export default function SettingsPage() {
 
              <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-emerald-600" /> Jam Buka Presensi
+                 <Clock className="w-4 h-4 text-emerald-600" /> Jam Buka Presensi {localTestMode && <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-600">DEBUG</Badge>}
               </label>
               <input
                 type="time"
-                value={localCheckInOpenTime}
-                onChange={(e) => setLocalCheckInOpenTime(e.target.value)}
-                className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                value={localTestMode ? localTestCheckInOpenTime : localCheckInOpenTime}
+                onChange={(e) => {
+                  if (localTestMode) setLocalTestCheckInOpenTime(e.target.value);
+                  else setLocalCheckInOpenTime(e.target.value);
+                }}
+                className={`w-full h-10 px-3 rounded-md border focus:ring-2 text-slate-900 ${localTestMode ? 'border-amber-300 focus:ring-amber-500 bg-amber-50/30' : 'border-slate-300 focus:ring-emerald-500'}`}
               />
               <p className="text-[10px] text-slate-500 italic">Sebelum jam ini = Belum waktunya presensi.</p>
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-rose-600" /> Jam Tutup / Pulang
+                 <Clock className="w-4 h-4 text-rose-600" /> Jam Tutup / Pulang {localTestMode && <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-600">DEBUG</Badge>}
               </label>
+              <div className="flex items-center gap-3 mb-2">
+                <button 
+                  onClick={() => {
+                    if (localTestMode) setLocalTestPresenceLimitEnabled(!localTestPresenceLimitEnabled);
+                    else setLocalPresenceLimitEnabled(!localPresenceLimitEnabled);
+                  }}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled) ? 'bg-rose-500' : 'bg-slate-200'}`}
+                >
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled) ? 'translate-x-5' : 'translate-x-1'}`} />
+                </button>
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  {(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled) ? 'Aktif' : 'Nonaktif'}
+                </span>
+              </div>
               <input
                 type="time"
-                value={localPresenceLimitTime}
-                onChange={(e) => setLocalPresenceLimitTime(e.target.value)}
-                className="w-full h-10 px-3 rounded-md border border-slate-300 focus:ring-2 focus:ring-rose-500 text-slate-900"
+                disabled={!(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled)}
+                value={localTestMode ? localTestPresenceLimitTime : localPresenceLimitTime}
+                onChange={(e) => {
+                  if (localTestMode) setLocalTestPresenceLimitTime(e.target.value);
+                  else setLocalPresenceLimitTime(e.target.value);
+                }}
+                className={`w-full h-10 px-3 rounded-md border focus:ring-2 text-slate-900 disabled:opacity-50 disabled:bg-slate-100 ${localTestMode ? 'border-amber-300 focus:ring-amber-500 bg-amber-50/30' : 'border-slate-300 focus:ring-rose-500'}`}
               />
               <p className="text-[10px] text-slate-500 italic">Lewat jam ini = bisa Check-out / Alpha.</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                 <ShieldCheck className="w-4 h-4 text-emerald-600" /> Wajib Jeda Pulang {localTestMode && <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-600">DEBUG</Badge>}
+              </label>
+              <div className="flex items-center gap-3 mb-2 pt-1">
+                <button 
+                  onClick={() => {
+                    if (localTestMode) setLocalTestEnforceMinGap(!localTestEnforceMinGap);
+                    else setLocalEnforceMinGap(!localEnforceMinGap);
+                  }}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${(localTestMode ? localTestEnforceMinGap : localEnforceMinGap) ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                >
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${(localTestMode ? localTestEnforceMinGap : localEnforceMinGap) ? 'translate-x-5' : 'translate-x-1'}`} />
+                </button>
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  {(localTestMode ? localTestEnforceMinGap : localEnforceMinGap) ? 'Ya (Ketat)' : 'Tidak'}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 italic">Jika YA, pegawai baru datang TIDAK BISA langsung pulang meski sudah jam tutup.</p>
             </div>
             
             <div className="space-y-2 col-span-full md:col-span-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                 <ShieldCheck className="w-4 h-4 text-emerald-600" /> Gemini API Key (Global)
+                 <ShieldCheck className="w-4 h-4 text-emerald-600" /> Gemini API Key (Global) 
+                 {localGoogleApiKey ? (
+                   <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] py-0 px-1.5 flex items-center gap-1">
+                     <CheckCircle2 className="w-2.5 h-2.5" /> Terkonfigurasi
+                   </Badge>
+                 ) : (
+                   <Badge variant="secondary" className="bg-slate-100 text-slate-500 border-slate-200 text-[10px] py-0 px-1.5 flex items-center gap-1">
+                     <AlertTriangle className="w-2.5 h-2.5" /> Gunakan .env
+                   </Badge>
+                 )}
               </label>
               <input
                 type="password"

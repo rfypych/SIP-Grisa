@@ -143,53 +143,49 @@ cp .env.example .env
 | Variabel | Deskripsi | Default (Docker) |
 |---|---|---|
 | `GEMINI_API_KEY` | Key untuk fitur AI Recovery (Opsional) | `""` |
-| `DB_HOST` | Host database MySQL | `db` (service name) |
-| `DB_USER` | Username MySQL | `root` |
-| `DB_PASS` | Password MySQL | (Kosong) |
-| `DB_NAME` | Nama database | `sip_grisa` |
-| `MYSQL_ROOT_PASSWORD` | Password root untuk container MySQL | `grisa_secure_2026` |
-| `SECRET_KEY` | Key rahasia untuk enkripsi JWT | `random_string` |
+| `MYSQL_ROOT_PASSWORD` | Password root untuk database MySQL | `grisa_secure_2026` |
+| `SECRET_KEY` | Key rahasia untuk enkripsi JWT | `grisa_super_secret_2026_xyz` |
 
 > [!TIP]
-> Jika menggunakan **Docker**, Anda cukup fokus pada `GEMINI_API_KEY` dan `MYSQL_ROOT_PASSWORD`. Sisanya sudah terkonfigurasi otomatis antar-container.
+> Jika menggunakan **Docker**, Anda cukup mengatur `GEMINI_API_KEY` dan `MYSQL_ROOT_PASSWORD` di file `.env`. Variabel lain seperti `DB_HOST`, `DB_USER`, dan `DB_NAME` sudah terkonfigurasi otomatis untuk komunikasi antar-container.
 
 ---
 
 ## 🚀 Cara Menjalankan Aplikasi
 
-### 🐳 Opsi 1: Docker (Direkomendasikan untuk Server)
+### 🐳 Opsi 1: Docker (Production Ready)
 
-Cara paling mudah dan stabil untuk deploy di server produksi.
+Konfigurasi Docker saat ini sudah dioptimalkan untuk performa dan keamanan tinggi (Multi-stage builds, Gzip compression, internal DB network).
 
-**Prasyarat:** Pastikan `docker` dan `docker compose` sudah terinstall di server.
+**Prasyarat:** Pastikan `docker` dan `docker compose` sudah terinstall.
 
 **Langkah-langkah:**
 
 ```bash
-# 1. Clone repository (ambil dari branch utama)
-git clone -b feat/smart-logic-overhaul-v6 https://github.com/rfypych/SIP-Grisa.git
+# 1. Clone repository
+git clone https://github.com/rfypych/SIP-Grisa.git
 cd SIP-Grisa
 
-# 2. (Opsional) Sesuaikan konfigurasi environment
-#    Salin file contoh, lalu edit password/API key jika perlu
+# 2. Siapkan environment
 cp .env.example .env
-nano .env
+# Edit .env jika ingin mengubah password database atau menambah Gemini Key
+# nano .env
 
-# 3. Build dan jalankan semua service (MySQL + Backend + Frontend)
+# 3. Build dan jalankan
 docker compose up -d --build
 
-# 4. Cek status container (pastikan semuanya 'Up')
+# 4. Cek status
 docker compose ps
-
-# 5. Lihat log backend (berguna untuk debug saat pertama jalan)
-docker compose logs -f backend
 ```
 
 **Akses Aplikasi:**
-- 🌐 **Frontend (Kiosk/Admin)**: `http://[IP-SERVER]`
-- ⚙️ **Backend API**: `http://[IP-SERVER]:8000`
+- 🌐 **Frontend (Kiosk/Admin)**: `http://localhost` (Port 80)
+- ⚙️ **Backend API**: `http://localhost:8000` (Optional access)
 
-> ⚠️ **Catatan**: Build pertama kali memerlukan waktu **5–15 menit** karena mengkompilasi library `dlib` dari source code. Build selanjutnya akan sangat cepat karena di-cache Docker.
+> [!IMPORTANT]
+> **Keamanan Database**: Port MySQL (3306) sekarang **tertutup dari akses luar** secara default untuk keamanan. Database hanya dapat diakses secara internal oleh container backend. Jika Anda perlu mengakses DB dari luar Docker, buka port 3306 di `docker-compose.yml`.
+
+> ⚠️ **Catatan Build**: Proses build pertama kali memerlukan waktu **10–15 menit** karena kompilasi library biometrik `dlib`. Gunakan stage caching Docker untuk build selanjutnya yang lebih cepat.
 
 **Perintah berguna lainnya:**
 ```bash

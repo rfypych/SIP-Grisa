@@ -23,6 +23,14 @@ interface SettingsState {
   exportSignatureRole: string;
   googleApiKey: string;
   testMode: boolean;
+  testCooldownSeconds: number;
+  testMinGapMinutes: number;
+  testPresenceLimitTime: string;
+  testCheckInOpenTime: string;
+  presenceLimitEnabled: boolean;
+  testPresenceLimitEnabled: boolean;
+  enforceMinGap: boolean;
+  testEnforceMinGap: boolean;
   fetchBackendSettings: (token: string) => Promise<void>;
   updateBackendSettings: (token: string, settings: Partial<{ 
     cooldown_seconds: number, 
@@ -38,7 +46,15 @@ interface SettingsState {
     export_signature_name: string,
     export_signature_role: string,
     google_api_key?: string,
-    test_mode?: number
+    test_mode?: number,
+    test_cooldown_seconds?: number,
+    test_min_gap_minutes?: number,
+    test_presence_limit_time?: string,
+    test_check_in_open_time?: string,
+    presence_limit_enabled?: number,
+    test_presence_limit_enabled?: number,
+    enforce_min_gap?: number,
+    test_enforce_min_gap?: number
   }>) => Promise<boolean>;
 }
 
@@ -67,6 +83,14 @@ export const useSettingsStore = create<SettingsState>()(
       exportSignatureRole: 'Mengetahui,',
       googleApiKey: '',
       testMode: false,
+      testCooldownSeconds: 0,
+      testMinGapMinutes: 0,
+      testPresenceLimitTime: '14:00',
+      testCheckInOpenTime: '07:00',
+      presenceLimitEnabled: true,
+      testPresenceLimitEnabled: true,
+      enforceMinGap: false,
+      testEnforceMinGap: false,
 
       fetchBackendSettings: async (token) => {
         try {
@@ -89,7 +113,15 @@ export const useSettingsStore = create<SettingsState>()(
             exportSignatureName: data.export_signature_name || '( ......................................... )',
             exportSignatureRole: data.export_signature_role || 'Mengetahui,',
             googleApiKey: data.google_api_key || '',
-            testMode: !!data.test_mode
+            testMode: !!data.test_mode,
+            testCooldownSeconds: data.test_cooldown_seconds || 0,
+            testMinGapMinutes: data.test_min_gap_minutes || 0,
+            testPresenceLimitTime: data.test_presence_limit_time || '14:00',
+            testCheckInOpenTime: data.test_check_in_open_time || '07:00',
+            presenceLimitEnabled: !!data.presence_limit_enabled,
+            testPresenceLimitEnabled: !!data.test_presence_limit_enabled,
+            enforceMinGap: !!data.enforce_min_gap,
+            testEnforceMinGap: !!data.test_enforce_min_gap
           });
         } catch (error) {
           console.error("Gagal mengambil pengaturan backend:", error);
@@ -103,6 +135,7 @@ export const useSettingsStore = create<SettingsState>()(
       const fullSettings = {
         cooldown_seconds: settingsPartial.cooldown_seconds ?? state.cooldownSeconds,
         min_gap_minutes: settingsPartial.min_gap_minutes ?? state.minGapMinutes,
+        checkout_start_hour: state.checkoutStartHour ?? 8,
         program_start_date: settingsPartial.program_start_date ?? state.programStartDate,
         alpha_limit_time: settingsPartial.alpha_limit_time ?? state.alphaLimitTime,
         presence_limit_time: settingsPartial.presence_limit_time ?? state.presenceLimitTime,
@@ -114,7 +147,15 @@ export const useSettingsStore = create<SettingsState>()(
         export_signature_name: settingsPartial.export_signature_name ?? state.exportSignatureName,
         export_signature_role: settingsPartial.export_signature_role ?? state.exportSignatureRole,
         google_api_key: settingsPartial.google_api_key ?? state.googleApiKey,
-        test_mode: settingsPartial.test_mode ?? (state.testMode ? 1 : 0)
+        test_mode: settingsPartial.test_mode ?? (state.testMode ? 1 : 0),
+        test_cooldown_seconds: settingsPartial.test_cooldown_seconds ?? state.testCooldownSeconds,
+        test_min_gap_minutes: settingsPartial.test_min_gap_minutes ?? state.testMinGapMinutes,
+        test_presence_limit_time: settingsPartial.test_presence_limit_time ?? state.testPresenceLimitTime,
+        test_check_in_open_time: settingsPartial.test_check_in_open_time ?? state.testCheckInOpenTime,
+        presence_limit_enabled: settingsPartial.presence_limit_enabled ?? (state.presenceLimitEnabled ? 1 : 0),
+        test_presence_limit_enabled: settingsPartial.test_presence_limit_enabled ?? (state.testPresenceLimitEnabled ? 1 : 0),
+        enforce_min_gap: settingsPartial.enforce_min_gap ?? (state.enforceMinGap ? 1 : 0),
+        test_enforce_min_gap: settingsPartial.test_enforce_min_gap ?? (state.testEnforceMinGap ? 1 : 0)
       };
 
       try {
@@ -131,6 +172,7 @@ export const useSettingsStore = create<SettingsState>()(
           set({
             cooldownSeconds: fullSettings.cooldown_seconds,
             minGapMinutes: fullSettings.min_gap_minutes,
+            checkoutStartHour: fullSettings.checkout_start_hour,
             programStartDate: fullSettings.program_start_date,
             alphaLimitTime: fullSettings.alpha_limit_time,
             checkInOpenTime: fullSettings.check_in_open_time,
@@ -142,7 +184,15 @@ export const useSettingsStore = create<SettingsState>()(
             exportSignatureName: fullSettings.export_signature_name,
             exportSignatureRole: fullSettings.export_signature_role,
             googleApiKey: fullSettings.google_api_key,
-            testMode: !!fullSettings.test_mode
+            testMode: !!fullSettings.test_mode,
+            testCooldownSeconds: fullSettings.test_cooldown_seconds,
+            testMinGapMinutes: fullSettings.test_min_gap_minutes,
+            testPresenceLimitTime: fullSettings.test_presence_limit_time,
+            testCheckInOpenTime: fullSettings.test_check_in_open_time,
+            presenceLimitEnabled: !!fullSettings.presence_limit_enabled,
+            testPresenceLimitEnabled: !!fullSettings.test_presence_limit_enabled,
+            enforceMinGap: !!fullSettings.enforce_min_gap,
+            testEnforceMinGap: !!fullSettings.test_enforce_min_gap
           });
           return true;
         }

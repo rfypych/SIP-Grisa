@@ -37,7 +37,7 @@ class ManualAttendance(BaseModel):
 class SystemSettings(BaseModel):
     cooldown_seconds: int
     min_gap_minutes: int
-    checkout_start_hour: int
+    checkout_start_hour: Optional[int] = 8
     program_start_date: str
     success_sound_url: str
     success_sound_enabled: bool
@@ -50,6 +50,14 @@ class SystemSettings(BaseModel):
     check_in_open_time: Optional[str] = '07:00'
     google_api_key: Optional[str] = None
     test_mode: Optional[int] = 0
+    test_cooldown_seconds: Optional[int] = 0
+    test_min_gap_minutes: Optional[int] = 0
+    test_presence_limit_time: Optional[str] = '14:00'
+    test_check_in_open_time: Optional[str] = '07:00'
+    presence_limit_enabled: Optional[int] = 1
+    test_presence_limit_enabled: Optional[int] = 1
+    enforce_min_gap: Optional[int] = 0
+    test_enforce_min_gap: Optional[int] = 0
 
 class FaceCropRequest(BaseModel):
     image: str
@@ -313,17 +321,18 @@ async def enroll_new_face(
     
     try:
         for file in files:
-            temp_file_path = f"{temp_dir}/{uuid.uuid4().hex}_{file.filename}"
+            temp_file_path = f"{temp_dir}/{uuid.uuid4().hex}_{id}.jpg" # Selalu .jpg
             with open(temp_file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
                 
+            # core_face_recognition.py akan melakukan resize dan overwrite temp_file_path
+            # Karena path berakhir .jpg, cv2.imwrite akan menyimpannya sebagai JPEG
             success = face_system.enroll_face(temp_file_path, id)
             
             if success:
                 success_count += 1
                 # Simpan foto terakhir sebagai foto profil utama di UI
-                photo_ext = os.path.splitext(file.filename)[1]
-                final_file_name = f"{id}{photo_ext}"
+                final_file_name = f"{id}.jpg"
                 final_file_path = os.path.join(photo_dir, final_file_name)
                 # Overwrite foto lama dengan yang terbaru
                 shutil.copy2(temp_file_path, final_file_path)
@@ -621,7 +630,9 @@ async def update_settings(settings: SystemSettings, request: Request, current_us
             cooldown_seconds=%s, min_gap_minutes=%s, checkout_start_hour=%s, program_start_date=%s, 
             success_sound_url=%s, success_sound_enabled=%s,
             export_location=%s, export_signature_enabled=%s, export_signature_name=%s, export_signature_role=%s,
-            alpha_limit_time=%s, presence_limit_time=%s, check_in_open_time=%s, google_api_key=%s, test_mode=%s
+            alpha_limit_time=%s, presence_limit_time=%s, check_in_open_time=%s, google_api_key=%s, test_mode=%s,
+            test_cooldown_seconds=%s, test_min_gap_minutes=%s, test_presence_limit_time=%s, test_check_in_open_time=%s,
+            presence_limit_enabled=%s, test_presence_limit_enabled=%s, enforce_min_gap=%s, test_enforce_min_gap=%s
             WHERE id=1
             """,
             (
@@ -629,7 +640,10 @@ async def update_settings(settings: SystemSettings, request: Request, current_us
                 settings.success_sound_url, 1 if settings.success_sound_enabled else 0,
                 settings.export_location, 1 if settings.export_signature_enabled else 0, settings.export_signature_name, settings.export_signature_role,
                 settings.alpha_limit_time, settings.presence_limit_time, settings.check_in_open_time or '07:00',
-                settings.google_api_key, settings.test_mode
+                settings.google_api_key, settings.test_mode,
+                settings.test_cooldown_seconds, settings.test_min_gap_minutes, settings.test_presence_limit_time, settings.test_check_in_open_time,
+                1 if settings.presence_limit_enabled else 0, 1 if settings.test_presence_limit_enabled else 0,
+                1 if settings.enforce_min_gap else 0, 1 if settings.test_enforce_min_gap else 0
             )
         )
         conn.commit()
@@ -982,10 +996,21 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                         # ── Ambil pengaturan sekali ──────────────────────────────
                         sys_settings = conn.execute("SELECT * FROM system_settings WHERE id=1").fetchone()
                         test_enabled  = sys_settings['test_mode'] if sys_settings else 0
-                        cooldown_val  = sys_settings['cooldown_seconds'] if sys_settings else 60
-                        min_gap_val   = sys_settings['min_gap_minutes'] if sys_settings else 60
-                        open_time_val = (sys_settings['check_in_open_time'] or '07:00') if sys_settings else '07:00'
-                        limit_val     = (sys_settings['presence_limit_time'] or '14:00') if sys_settings else '14:00'
+                        
+                        if test_enabled:
+                            cooldown_val  = sys_settings['test_cooldown_seconds']
+                            min_gap_val   = sys_settings['test_min_gap_minutes']
+                            open_time_val = (sys_settings['test_check_in_open_time'] or '07:00')
+                            limit_val     = (sys_settings['test_presence_limit_time'] or '14:00')
+                            limit_enabled = sys_settings['test_presence_limit_enabled']
+                            enforce_gap   = sys_settings['test_enforce_min_gap']
+                        else:
+                            cooldown_val  = sys_settings['cooldown_seconds']
+                            min_gap_val   = sys_settings['min_gap_minutes']
+                            open_time_val = (sys_settings['check_in_open_time'] or '07:00')
+                            limit_val     = (sys_settings['presence_limit_time'] or '14:00')
+                            limit_enabled = sys_settings['presence_limit_enabled']
+                            enforce_gap   = sys_settings['enforce_min_gap']
 
                         # ── Waktu referensi (real / simulasi) ────────────────────
                         now = datetime.now()
@@ -1014,6 +1039,8 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                             "simulated": bool(data.get("simulate_time")),
                             "check_in_open_time": open_time_val,
                             "presence_limit_time": limit_val,
+                            "presence_limit_enabled": limit_enabled,
+                            "enforce_min_gap": enforce_gap,
                             "current_logic_time": time_now,
                             "face_id": face_id,
                             "last_check_in": existing['check_in'] if existing else None,
@@ -1055,10 +1082,18 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                 try:
                                     check_in_dt  = datetime.strptime(f"{today} {existing['check_in']}", "%Y-%m-%d %H:%M:%S")
                                     minutes_diff = (now - check_in_dt).total_seconds() / 60
-                                    if minutes_diff >= min_gap_val or time_now >= limit_val:
+                                    
+                                    # Logika Cerdas:
+                                    # 1. Selalu boleh pulang jika sudah penuhi min_gap
+                                    if minutes_diff >= min_gap_val:
                                         can_checkout = True
+                                    # 2. Boleh pulang jika sudah jam tutup, KECUALI 'enforce_gap' aktif
+                                    elif limit_enabled and time_now >= limit_val:
+                                        if not enforce_gap:
+                                            can_checkout = True
                                 except:
-                                    if time_now >= limit_val:
+                                    # Fallback sederhana jika parsing gagal
+                                    if limit_enabled and time_now >= limit_val and not enforce_gap:
                                         can_checkout = True
 
                                 if can_checkout:

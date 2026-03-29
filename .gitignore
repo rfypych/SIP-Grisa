@@ -34,6 +34,7 @@ wheels/
 # Database & Data (Safe to ignore in git)
 grisa_presence.db
 data/encodings.pkl
+data/photos/
 temp_uploads/
 
 # IDEs & System
