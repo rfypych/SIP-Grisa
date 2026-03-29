@@ -186,15 +186,18 @@ export default function LaporanPage() {
     daysArray.forEach((day, i) => {
       const colIndex = 4 + i;
       const cellDate = new Date(year, month - 1, day);
+      const dateStr = cellDate.toLocaleDateString('en-CA');
       const isSunday = cellDate.getDay() === 0;
       const isSaturday = cellDate.getDay() === 6;
+      const isHoliday = holidays.includes(dateStr);
       const dayName = cellDate.toLocaleDateString('id-ID', { weekday: 'short' }).toUpperCase();
       
       dayNamesRow.getCell(colIndex).value = dayName;
       dateRow.getCell(colIndex).value = day;
 
       let fgColor = 'FF334155'; // Slate-700
-      if (isSunday) fgColor = 'FFEF4444'; // Red-500
+      if (isHoliday) fgColor = 'FF3B82F6'; // Blue-500
+      else if (isSunday) fgColor = 'FFEF4444'; // Red-500
       else if (isSaturday) fgColor = 'FFF59E0B'; // Amber-500
 
       [dayNamesRow.getCell(colIndex), dateRow.getCell(colIndex)].forEach((cell, idx) => {
@@ -250,29 +253,43 @@ export default function LaporanPage() {
       daysArray.forEach((day, i) => {
         const record = emp.records.find(r => r.date === day);
         const cellDate = new Date(year, month - 1, day);
+        const dateStr = cellDate.toLocaleDateString('en-CA');
         const isSunday = cellDate.getDay() === 0;
         const isSaturday = cellDate.getDay() === 6;
+        const isHoliday = holidays.includes(dateStr);
         const cell = row.getCell(4 + i);
 
         // Reset text alignment for data cells
         cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
         if (record && record.status !== 'Libur') {
-          cell.value = record.checkIn ? `${record.checkIn}\n${record.checkOut || '-'}` : (record.status.toUpperCase().charAt(0));
-          
+          // Diferensiasi warna Masuk (Emerald) & Pulang (Indigo) menggunakan RichText
           if (record.checkIn) {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; // Emerald-100 (Lebih terlihat)
-            cell.font = { color: { argb: 'FF065F46' }, size: 8, bold: true };
-          } else if (record.status === 'sakit') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } }; // Purple-100
-            cell.font = { color: { argb: 'FF6B21A8' }, bold: true };
-          } else if (record.status === 'izin') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }; // Blue-100
-            cell.font = { color: { argb: 'FF1E3A8A' }, bold: true };
-          } else if (record.status === 'dinas') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }; // Amber-100
-            cell.font = { color: { argb: 'FF92400E' }, bold: true };
+            cell.value = {
+              richText: [
+                { text: record.checkIn, font: { color: { argb: 'FF059669' }, bold: true, size: 8 } },
+                { text: '\n' },
+                { text: record.checkOut || '-', font: { color: { argb: 'FF4F46E5' }, bold: true, size: 8 } }
+              ]
+            };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; // Emerald-100
+          } else {
+            cell.value = record.status.toUpperCase().charAt(0);
+            if (record.status === 'sakit') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } }; // Purple-100
+              cell.font = { color: { argb: 'FF6B21A8' }, bold: true };
+            } else if (record.status === 'izin') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }; // Blue-100
+              cell.font = { color: { argb: 'FF1E3A8A' }, bold: true };
+            } else if (record.status === 'dinas') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }; // Amber-100
+              cell.font = { color: { argb: 'FF92400E' }, bold: true };
+            }
           }
+        } else if (isHoliday) {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }; // Blue-100
+          cell.font = { color: { argb: 'FF1E3A8A' }, size: 9, bold: true };
+          cell.value = 'L';
         } else if (isSunday) {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFACACA' } }; // Red-100 (Soft)
           cell.font = { color: { argb: 'FFEF4444' }, size: 9 };
@@ -323,7 +340,7 @@ export default function LaporanPage() {
     sheet.getCell(`A${lastRowIndex}`).value = 'Keterangan:';
     sheet.getCell(`A${lastRowIndex}`).font = { bold: true };
 
-    sheet.getCell(`A${lastRowIndex+1}`).value = 'H : Hadir | S : Sakit | I : Izin | D : Dinas | A : Alpha';
+    sheet.getCell(`A${lastRowIndex+1}`).value = 'H: Hadir | S: Sakit | I: Izin | D: Dinas | A: Alpha | L: Libur / Akhir Pekan';
     sheet.getCell(`A${lastRowIndex+1}`).font = { size: 9, italic: true };
 
     const { exportLocation, exportSignatureEnabled, exportSignatureName, exportSignatureRole } = useSettingsStore.getState();
