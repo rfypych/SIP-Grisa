@@ -29,6 +29,16 @@ def init_db():
         # Koneksi ke DB untuk buat tabel
         conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME, cursorclass=pymysql.cursors.DictCursor)
         with conn.cursor() as cursor:
+            # --- TABEL ADMIN (Dibuat pertama karena dirujuk tabel lain) ---
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS admins (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                role VARCHAR(20) DEFAULT 'admin'
+            )
+            ''')
+
             # Buat tabel Pegawai
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS employees (
@@ -66,16 +76,6 @@ def init_db():
                 FOREIGN KEY(admin_id) REFERENCES admins(id) ON DELETE SET NULL
             )
             ''')
-            
-            # --- TABEL ADMIN ---
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS admins (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(100) UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                role VARCHAR(20) DEFAULT 'admin'
-            )
-            ''')
 
             # --- TABEL HARI LIBUR ---
             cursor.execute('''
@@ -86,6 +86,7 @@ def init_db():
                 type VARCHAR(20) DEFAULT 'custom'
             )
             ''')
+
             
             # --- TABEL SETTINGS ---
             cursor.execute('''
