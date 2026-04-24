@@ -157,12 +157,20 @@ def init_db():
             # Buat Super Admin pertama jika kosong
             cursor.execute("SELECT COUNT(*) as count FROM admins")
             if cursor.fetchone()['count'] == 0:
-                # Kredensial super rumit sesuai request
+                # Kredensial super admin
                 user = "grisa_super_admin_2026"
                 raw_pass = "Grisa@Secure#Auth!2026*"
-                hashed = pwd_context.hash(raw_pass)
-                cursor.execute("INSERT INTO admins (username, password, role) VALUES (%s, %s, %s)", (user, hashed, "superadmin"))
-                print(f"[DB INFO] Super Admin created: {user}")
+                
+                try:
+                    # Pastikan password dipotong jika lebih dari 72 byte (limit bcrypt)
+                    # Meskipun di sini aman, ini untuk mencegah error di masa depan
+                    safe_pass = raw_pass[:72]
+                    hashed = pwd_context.hash(safe_pass)
+                    cursor.execute("INSERT INTO admins (username, password, role) VALUES (%s, %s, %s)", (user, hashed, "superadmin"))
+                    print(f"[DB INFO] Super Admin created: {user}")
+                except Exception as hash_error:
+                    print(f"[DB ERROR] Gagal melakukan hashing password admin: {hash_error}")
+
             
         conn.commit()
         conn.close()
