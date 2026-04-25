@@ -47,7 +47,8 @@ interface AttendanceStore {
 // Menggunakan path relatif agar proxy Vite otomatis mengarahkan ke Backend (8000)
 // Ini memungkinkan akses dari HP via IP lokal tanpa mengubah variabel manual.
 const API_BASE_URL = ''; 
-const WS_BASE_URL = `ws://${window.location.host}/ws/kiosk`;
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_BASE_URL = `${protocol}//${window.location.host}/ws/kiosk`;
 
 export const useAttendanceStore = create<AttendanceStore>((set, get) => ({
   employees: [],
