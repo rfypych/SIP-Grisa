@@ -1165,6 +1165,15 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                         "open_time": open_time_val,
                                         "debug": debug_info
                                     })
+                                # Jika terlalu lambat (lewat jam tutup / batas presensi)
+                                elif limit_enabled and time_now > limit_val:
+                                    await websocket.send_json({
+                                        "event": "too_late",
+                                        "name": real_name,
+                                        "id": face_id,
+                                        "limit_time": limit_val,
+                                        "debug": debug_info
+                                    })
                                 else:
                                     # CHECK-IN BERHASIL
                                     status = "hadir"

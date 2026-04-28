@@ -156,6 +156,8 @@ export default function KioskPage() {
         showModal('checkout-success', data.name, { check_out: data.check_out });
       } else if (data.event === 'too_early') {
         showModal('too-early', data.name, { open_time: data.open_time });
+      } else if (data.event === 'too_late') {
+        showModal('too-late', data.name, { presence_limit: data.limit_time });
       } else if (data.event === 'already_checkin') {
         showModal('already-checkin', data.name, { check_in: data.check_in, presence_limit: data.presence_limit });
       } else if (data.event === 'already_checked_out') {
@@ -393,6 +395,35 @@ export default function KioskPage() {
               </div>
               <div className="flex items-center gap-6 bg-orange-50 px-10 py-5 rounded-[2rem] border border-orange-100">
                 <span className="text-orange-700 font-bold uppercase tracking-widest text-xs">Silakan kembali saat waktunya ⏰</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── MODAL: Sudah Terlambat / Melewati Jam Batas ❌ ── */}
+      <AnimatePresence>
+        {scanStatus === 'too-late' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-red-500/20 backdrop-blur-3xl p-6">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-[4rem] shadow-2xl p-16 flex flex-col items-center max-w-2xl w-full">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
+                transition={{ type: 'spring', damping: 10, stiffness: 100 }}
+                className="w-32 h-32 bg-gradient-to-br from-red-500 to-rose-600 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-xl shadow-red-200">
+                <Clock className="w-16 h-16 text-white" />
+              </motion.div>
+              <p className="text-red-500 text-sm font-black uppercase tracking-[0.4em] mb-4">Terlambat Presensi ❌</p>
+              <div className="text-center mb-12">
+                <span className="text-slate-400 text-xl font-medium block mb-2 font-serif italic">Mohon Maaf,</span>
+                <h3 className="text-slate-900 text-6xl font-black uppercase tracking-tight">{scannedName}</h3>
+                <p className="text-slate-500 mt-6 font-bold text-lg">
+                  Batas presensi masuk adalah pukul
+                  <span className="text-red-500 font-black ml-2">{extraData?.presence_limit || '14:00'}</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-6 bg-red-50 px-10 py-5 rounded-[2rem] border border-red-100">
+                <span className="text-red-700 font-bold uppercase tracking-widest text-xs">Hubungi Admin jika ini adalah kesalahan 🙏</span>
               </div>
             </motion.div>
           </motion.div>
@@ -721,8 +752,14 @@ export default function KioskPage() {
                        </div>
                        <div className="flex justify-between items-center">
                           <span className="text-[10px] font-bold uppercase text-slate-400">Will Be</span>
-                          <Badge className={debugData.current_logic_time >= presenceLimitTime ? 'bg-blue-500' : 'bg-emerald-500'}>
-                             {debugData.current_logic_time >= presenceLimitTime ? 'CHECK-OUT' : 'CHECK-IN'}
+                          <Badge className={
+                            (debugData.last_check_in && debugData.last_check_out) ? 'bg-slate-500' :
+                            (debugData.last_check_in && !debugData.last_check_out) ? 'bg-blue-500' : 
+                            'bg-emerald-500'
+                          }>
+                             {(debugData.last_check_in && debugData.last_check_out) ? 'DONE' :
+                              (debugData.last_check_in && !debugData.last_check_out) ? 'CHECK-OUT' : 
+                              'CHECK-IN'}
                           </Badge>
                        </div>
                     </div>
