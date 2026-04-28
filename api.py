@@ -1044,7 +1044,11 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
 
                         # ── Cooldown per-orang ────────────────────────────────
                         last_seen = kiosk_cooldowns.get(face_id)
-                        remains   = cooldown_val - (now - last_seen).total_seconds() if last_seen else 0
+                        # Auto-expire: buang entry cooldown yang sudah kadaluarsa
+                        if last_seen and (now - last_seen).total_seconds() >= cooldown_val:
+                            del kiosk_cooldowns[face_id]
+                            last_seen = None
+                        remains = cooldown_val - (now - last_seen).total_seconds() if last_seen else 0
 
                         debug_info = {
                             "confidence": confidence,
@@ -1177,21 +1181,35 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                 else:
                                     # CHECK-IN BERHASIL
                                     status = "hadir"
-                                    conn.execute(
-                                        "INSERT INTO attendance (employee_id, date, check_in, status, recorded_by) VALUES (%s, %s, %s, %s, %s)",
-                                        (face_id, today, now.strftime("%H:%M:%S"), status, gate_admin_id)
-                                    )
-                                    conn.commit()
-                                    await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkin", "status": status})
-                                    await websocket.send_json({
-                                        "event": "checkin_success",
-                                        "name": real_name,
-                                        "id": face_id,
-                                        "type": "checkin",
-                                        "status": status,
-                                        "check_in": now.strftime("%H:%M:%S"),
-                                        "debug": debug_info
-                                    })
+                                    try:
+                                        conn.execute(
+                                            "INSERT INTO attendance (employee_id, date, check_in, status, recorded_by) VALUES (%s, %s, %s, %s, %s)",
+                                            (face_id, today, now.strftime("%H:%M:%S"), status, gate_admin_id)
+                                        )
+                                        conn.commit()
+                                        await manager.broadcast({"event": "NEW_ATTENDANCE", "name": real_name, "id": face_id, "type": "checkin", "status": status})
+                                        await websocket.send_json({
+                                            "event": "checkin_success",
+                                            "name": real_name,
+                                            "id": face_id,
+                                            "type": "checkin",
+                                            "status": status,
+                                            "check_in": now.strftime("%H:%M:%S"),
+                                            "debug": debug_info
+                                        })
+                                    except Exception as dup_err:
+                                        # Race condition: device lain sudah insert duluan (UNIQUE constraint)
+                                        # Baca ulang data yang sudah ada dan kirim sebagai already_checkin
+                                        print(f"[RACE CONDITION] Duplicate insert for {face_id} on {today}: {dup_err}")
+                                        existing_now = conn.execute("SELECT * FROM attendance WHERE employee_id=%s AND date=%s", (face_id, today)).fetchone()
+                                        await websocket.send_json({
+                                            "event": "already_checkin",
+                                            "name": real_name,
+                                            "id": face_id,
+                                            "check_in": existing_now['check_in'] if existing_now else now.strftime("%H:%M:%S"),
+                                            "presence_limit": limit_val,
+                                            "debug": debug_info
+                                        })
                     finally:
                         conn.close()
                 else:

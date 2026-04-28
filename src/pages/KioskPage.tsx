@@ -130,6 +130,10 @@ export default function KioskPage() {
           type: 'auth',
           token: token
         }));
+        // Kirim frame pertama segera setelah auth dikirim (warmup)
+        setTimeout(() => {
+          captureAndSend();
+        }, 300);
       }
     };
 
@@ -166,7 +170,7 @@ export default function KioskPage() {
         showModal('blocked', data.name, { status: data.status });
       } else if (data.event === 'searching' || data.event === 'on_cooldown') {
         setScanStatus(prev => (
-          ['checkin-success','checkout-success','too-early','already-checkin','already-checked-out','blocked'].includes(prev) ? prev : 'scanning'
+          ['checkin-success','checkout-success','too-early','too-late','already-checkin','already-checked-out','blocked'].includes(prev) ? prev : 'scanning'
         ));
       }
 
@@ -186,8 +190,18 @@ export default function KioskPage() {
       }
     }, testMode ? 400 : 1000);
 
+    // Kirim frame pertama secepatnya (tidak perlu tunggu tick interval pertama)
+    const warmupTimeout = setTimeout(() => {
+      if (!isProcessing) {
+        isProcessing = true;
+        lastRequestTime = Date.now();
+        captureAndSend();
+      }
+    }, 500);
+
     return () => {
       clearInterval(sendLoop);
+      clearTimeout(warmupTimeout);
       ws.current?.close();
     };
   }, [testMode, token, successSoundEnabled, successSoundUrl, kioskName]); 
