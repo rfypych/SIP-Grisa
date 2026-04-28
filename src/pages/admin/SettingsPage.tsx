@@ -50,9 +50,22 @@ export default function SettingsPage() {
   const [isBackendSaved, setIsBackendSaved] = useState(false);
   const [newCat, setNewCat] = useState('');
 
+  const [localAiTolerance, setLocalAiTolerance] = useState(0.6);
+  const [isAiSaved, setIsAiSaved] = useState(false);
+
   // Initial Fetch
   useEffect(() => {
-    if (token) fetchBackendSettings(token);
+    if (token) {
+      fetchBackendSettings(token);
+      fetch('/api/settings/ai', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => {
+           if (data.status === 'success') {
+             setLocalAiTolerance(data.tolerance);
+           }
+        })
+        .catch(err => console.error(err));
+    }
   }, [token, fetchBackendSettings]);
 
   // Sync local state if store changes (from fetch)
@@ -118,6 +131,26 @@ export default function SettingsPage() {
     if (success) {
       setIsBackendSaved(true);
       setTimeout(() => setIsBackendSaved(false), 3000);
+    }
+  };
+
+  const handleSaveAiSettings = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/settings/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ tolerance: localAiTolerance })
+      });
+      if (res.ok) {
+        setIsAiSaved(true);
+        setTimeout(() => setIsAiSaved(false), 3000);
+      } else {
+        alert("Gagal menyimpan pengaturan AI.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Terjadi kesalahan jaringan.");
     }
   };
 
@@ -282,32 +315,18 @@ export default function SettingsPage() {
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
                  <Clock className="w-4 h-4 text-rose-600" /> Jam Tutup / Pulang {localTestMode && <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-600">DEBUG</Badge>}
               </label>
-              <div className="flex items-center gap-3 mb-2">
-                <button 
-                  onClick={() => {
-                    if (localTestMode) setLocalTestPresenceLimitEnabled(!localTestPresenceLimitEnabled);
-                    else setLocalPresenceLimitEnabled(!localPresenceLimitEnabled);
-                  }}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled) ? 'bg-rose-500' : 'bg-slate-200'}`}
-                >
-                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled) ? 'translate-x-5' : 'translate-x-1'}`} />
-                </button>
-                <span className="text-[10px] font-bold uppercase text-slate-400">
-                  {(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled) ? 'Aktif' : 'Nonaktif'}
-                </span>
-              </div>
               <input
                 type="time"
-                disabled={!(localTestMode ? localTestPresenceLimitEnabled : localPresenceLimitEnabled)}
                 value={localTestMode ? localTestPresenceLimitTime : localPresenceLimitTime}
                 onChange={(e) => {
                   if (localTestMode) setLocalTestPresenceLimitTime(e.target.value);
                   else setLocalPresenceLimitTime(e.target.value);
                 }}
-                className={`w-full h-10 px-3 rounded-md border focus:ring-2 text-slate-900 disabled:opacity-50 disabled:bg-slate-100 ${localTestMode ? 'border-amber-300 focus:ring-amber-500 bg-amber-50/30' : 'border-slate-300 focus:ring-rose-500'}`}
+                className={`w-full h-10 px-3 rounded-md border focus:ring-2 text-slate-900 ${localTestMode ? 'border-amber-300 focus:ring-amber-500 bg-amber-50/30' : 'border-slate-300 focus:ring-rose-500'}`}
               />
-              <p className="text-[10px] text-slate-500 italic">Lewat jam ini = bisa Check-out / Alpha.</p>
+              <p className="text-[10px] text-slate-500 italic">Batas jam presensi normal sebelum Check-out.</p>
             </div>
+
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
@@ -424,7 +443,7 @@ export default function SettingsPage() {
                    {localSuccessSoundUrl.split('/').pop()}
                  </div>
                  <Button 
-                   variant="ghost" 
+                   variant="ghost"  
                    size="sm"
                    onClick={() => setLocalSuccessSoundUrl('/api/sounds/applepay.mp3')}
                    className="text-slate-400 hover:text-orange-600"
@@ -521,6 +540,64 @@ export default function SettingsPage() {
                 Tersimpan!
               </span>
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200 shadow-sm mt-6">
+        <CardHeader className="border-b border-slate-100 bg-emerald-50/30 pb-4">
+          <CardTitle className="flex items-center gap-2 text-lg text-slate-800">
+            <Camera className="w-5 h-5 text-emerald-600" />
+            Pengaturan Model AI (Tingkat Kepercayaan)
+          </CardTitle>
+          <p className="text-sm text-slate-500 mt-1">Atur seberapa ketat AI dalam mengenali wajah pegawai.</p>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="space-y-4 max-w-xl">
+            <div className="bg-rose-50 border border-rose-200 p-3 rounded-lg flex gap-3 text-rose-800 text-sm">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-rose-600" />
+              <p>
+                <strong>Peringatan Penting:</strong> Toleransi menentukan tingkat kepercayaan model.
+                <br/>• Nilai kecil (Misal 0.4): Sangat ketat. Sedikit perubahan wajah tidak dikenali.
+                <br/>• Nilai besar (Misal 0.8): Sangat longgar. Rentan salah deteksi/wajah tertukar.
+                <br/>• Sangat disarankan tetap di nilai default <strong>0.6</strong>.
+              </p>
+            </div>
+            
+            <div className="space-y-2 pt-2">
+              <label className="text-sm font-medium text-slate-700 flex justify-between">
+                <span>Nilai Toleransi (Saat ini: <strong className="text-emerald-600">{localAiTolerance}</strong>)</span>
+                <Button variant="outline" size="sm" onClick={() => setLocalAiTolerance(0.6)} className="h-7 text-[11px] px-2 bg-white">
+                  <RotateCcw className="w-3 h-3 mr-1" /> Reset ke 0.6
+                </Button>
+              </label>
+              <input
+                type="range"
+                min="0.1"
+                max="1.0"
+                step="0.05"
+                value={localAiTolerance}
+                onChange={(e) => setLocalAiTolerance(parseFloat(e.target.value))}
+                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 font-bold uppercase">
+                <span>Lebih Ketat (0.1)</span>
+                <span>Lebih Longgar (1.0)</span>
+              </div>
+            </div>
+
+            <div className="pt-4 flex items-center gap-4 border-t border-slate-100 mt-6">
+              <Button onClick={handleSaveAiSettings} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+                <Save className="w-4 h-4" />
+                Simpan Toleransi AI
+              </Button>
+              {isAiSaved && (
+                <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-600">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Tersimpan!
+                </span>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

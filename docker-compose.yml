@@ -15,7 +15,7 @@ services:
       - sip_grisa_db_data:/var/lib/mysql
     # No ports exposed to host for security; only backend can access it
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3

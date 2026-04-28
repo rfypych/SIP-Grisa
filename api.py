@@ -34,6 +34,9 @@ class ManualAttendance(BaseModel):
     date: str
     status: str
 
+class AISettings(BaseModel):
+    tolerance: float
+
 class SystemSettings(BaseModel):
     cooldown_seconds: int
     min_gap_minutes: int
@@ -284,7 +287,14 @@ async def delete_admin(admin_id: int, request: Request, current_user: AdminUser 
         
         # Ambil username sebelum dihapus untuk log
         adr = conn.execute("SELECT username FROM admins WHERE id=%s", (admin_id,)).fetchone()
-        target_username = adr['username'] if adr else f"ID:{admin_id}"
+        if not adr:
+            raise HTTPException(status_code=404, detail="Akun tidak ditemukan")
+            
+        target_username = adr['username']
+        
+        # Proteksi Admin Default
+        if target_username == "grisa_super_admin_2026":
+            raise HTTPException(status_code=400, detail="Tidak dapat menghapus Akun Utama Sistem")
 
         conn.execute("DELETE FROM admins WHERE id = %s", (admin_id,))
         conn.commit()
@@ -297,6 +307,49 @@ async def delete_admin(admin_id: int, request: Request, current_user: AdminUser 
         )
         
         return {"status": "success", "message": "Akun administrator berhasil dihapus"}
+    finally:
+        conn.close()
+
+@app.put("/api/admin/users/{admin_id}")
+async def update_admin(admin_id: int, user_data: AdminUser, request: Request, current_user: AdminUser = Depends(get_superadmin)):
+    conn = database.get_db_connection()
+    try:
+        # Cek eksistensi
+        existing = conn.execute("SELECT username, role FROM admins WHERE id=%s", (admin_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Akun tidak ditemukan")
+            
+        # Proteksi Role Admin Default
+        if existing['username'] == "grisa_super_admin_2026" and user_data.role != "superadmin":
+            raise HTTPException(status_code=400, detail="Role Akun Utama Sistem tidak dapat diubah")
+
+        # Update Dasar
+        if user_data.password:
+            hashed = pwd_context.hash(user_data.password)
+            conn.execute(
+                "UPDATE admins SET username=%s, password=%s, role=%s WHERE id=%s",
+                (user_data.username, hashed, user_data.role, admin_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE admins SET username=%s, role=%s WHERE id=%s",
+                (user_data.username, user_data.role, admin_id)
+            )
+            
+        conn.commit()
+        
+        await log_system_action(
+            current_user.id, 
+            "UPDATE_ADMIN", 
+            f"Memperbarui akun {user_data.username} (Role: {user_data.role})", 
+            request
+        )
+        
+        return {"status": "success", "message": "Akun administrator berhasil diperbarui"}
+    except Exception as e:
+        if "Duplicate entry" in str(e):
+            raise HTTPException(status_code=400, detail="Username sudah digunakan")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -447,66 +500,8 @@ async def get_live_reports(month: int, year: int, current_user: AdminUser = Depe
             izin_count = sum(1 for r in records_query if r['status'] == 'izin')
             dinas_count = sum(1 for r in records_query if r['status'] == 'dinas')
             
-            # --- LOGIKA KALKULASI ALPHA DINAMIS ---
-            now = datetime.now()
-            today = now.day
-            is_current_month = (now.month == month and now.year == year)
-            
-            # Ambil program_start_date dan alpha_limit_time dari db
-            sys_settings = conn.execute("SELECT program_start_date, alpha_limit_time FROM system_settings WHERE id=1").fetchone()
-            start_date_str = sys_settings['program_start_date'] if sys_settings else '2026-03-01'
-            alpha_limit_str = sys_settings['alpha_limit_time'] if sys_settings else '07:30'
-            try:
-                start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-            except:
-                start_date = datetime(year, month, 1)
-
-            # Ambil daftar hari libur di bulan tersebut (Lokal/Database)
-            holidays_query = conn.execute(
-                "SELECT holiday_date FROM holidays WHERE holiday_date LIKE %s",
-                (f"{year}-{str(month).zfill(2)}-%",)
-            ).fetchall()
-            holiday_dates = set(h['holiday_date'] for h in holidays_query)
-
-            # Hitung hari kerja (Senin - Jumat) sampai hari ini (atau akhir bulan jika bulan lalu)
-            import calendar
-            _, last_day = calendar.monthrange(year, month)
-            limit_day = today if is_current_month else last_day
-            
-            work_days_count = 0
-            for d in range(1, limit_day + 1):
-                day_date = datetime(year, month, d)
-                day_str = day_date.strftime("%Y-%m-%d")
-                # Hanya hitung jika hari ini >= hari mulai program, Senin-Jumat (weekday < 5), dan BUKAN HARI LIBUR
-                if day_date >= start_date and day_date.weekday() < 5 and day_str not in holiday_dates:
-                    work_days_count += 1
-                    
-                    # --- AUTO-POPULATE ALFA DI MATRIKS ---
-                    # Jika di records_dict hari tersebut masih kosong
-                    if str(d) not in records_dict:
-                        is_today = (d == today and is_current_month)
-                        is_past = (day_date < datetime(now.year, now.month, now.day))
-                        
-                        should_show_alfa = False
-                        if is_past:
-                            should_show_alfa = True
-                        elif is_today:
-                            # Jika hari ini, cek apakah sudah lewat jam batas alpha
-                            try:
-                                # Parsing jam alpha (format HH:MM)
-                                h, min_part = map(int, presence_limit_str.split(':')[:2])
-                                alpha_time_today = now.replace(hour=h, minute=min_part, second=0, microsecond=0)
-                                if now > alpha_time_today:
-                                    should_show_alfa = True
-                            except:
-                                pass
-                        
-                        if should_show_alfa:
-                            records_dict[str(d)] = {"status": "alfa", "masuk": None, "pulang": None, "is_virtual": True}
-            
             # Alpha = Total Hari Kerja - (Hadir + Sakit + Izin + Dinas)
-            total_recorded = hadir_count + sakit_count + izin_count + dinas_count
-            alpha_count = max(0, work_days_count - total_recorded)
+            alfa_count = sum(1 for r in records_query if r['status'] == 'alfa')
             
             report_data.append({
                 "id": emp['id'],
@@ -519,7 +514,7 @@ async def get_live_reports(month: int, year: int, current_user: AdminUser = Depe
                     "sakit": sakit_count, 
                     "izin": izin_count + dinas_count, 
                     "cuti": 0, 
-                    "alpha": alpha_count
+                    "alpha": alfa_count
                 }
             })
         
@@ -671,6 +666,20 @@ async def upload_success_sound(file: UploadFile = File(...), current_user: Admin
         
     url = f"/api/sounds/{filename}"
     return {"status": "success", "url": url}
+
+@app.get("/api/settings/ai")
+async def get_ai_settings(current_user: AdminUser = Depends(get_admin)):
+    tolerance = face_system.config.get("tolerance", 0.6)
+    return {"status": "success", "tolerance": tolerance}
+
+@app.post("/api/settings/ai")
+async def update_ai_settings(settings: AISettings, request: Request, current_user: AdminUser = Depends(get_admin)):
+    face_system.config["tolerance"] = settings.tolerance
+    import json
+    with open(face_system.config_path, "w") as f:
+        json.dump(face_system.config, f)
+    await log_system_action(current_user.id, "UPDATE_AI_SETTINGS", f"Mengubah AI Tolerance ke {settings.tolerance}", request)
+    return {"status": "success", "message": "Pengaturan AI berhasil diperbarui", "tolerance": settings.tolerance}
 
 import face_recognition
 import numpy as np
@@ -988,8 +997,10 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                 nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 
-                # Gunakan face_system untuk mendeteksi
-                name, face_id, confidence = face_system.recognize_single_frame(frame, return_confidence=True)
+                # Gunakan face_system untuk mendeteksi (dengan to_thread agar tidak memblokir event loop)
+                name, face_id, confidence = await asyncio.to_thread(
+                    face_system.recognize_single_frame, frame, return_confidence=True
+                )
                 if face_id and face_id != "Unknown":
                     conn = database.get_db_connection()
                     try:
@@ -1023,10 +1034,13 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                         today    = now.strftime("%Y-%m-%d")
                         time_now = now.strftime("%H:%M")
 
-                        # ── Ambil data karyawan & absensi ──────────────────────
+                        # ── Ambil data karyawan, absensi, & hari libur ────────────────
                         emp_data  = conn.execute("SELECT name FROM employees WHERE id=%s", (face_id,)).fetchone()
                         real_name = emp_data['name'] if emp_data else face_id
                         existing  = conn.execute("SELECT * FROM attendance WHERE employee_id=%s AND date=%s", (face_id, today)).fetchone()
+                        
+                        # Cek hari libur
+                        holiday = conn.execute("SELECT description FROM holidays WHERE holiday_date=%s", (today,)).fetchone()
 
                         # ── Cooldown per-orang ────────────────────────────────
                         last_seen = kiosk_cooldowns.get(face_id)
@@ -1050,6 +1064,18 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                         # ══ COOLDOWN ═════════════════════════════════════════
                         if cooldown_val > 0 and last_seen and remains > 0:
                             await websocket.send_json({"event": "on_cooldown", "face_id": face_id, "debug": debug_info})
+
+                        # ══ HARI LIBUR / AKHIR PEKAN ══════════════════════════
+                        elif (holiday or now.weekday() >= 6) and not existing:
+                            # 6 = Minggu (Sunday). Jika ingin Sabtu juga: >= 5
+                            desc = holiday['description'] if holiday else "Hari Minggu (Libur Akhir Pekan)"
+                            await websocket.send_json({
+                                "event": "info_holiday", 
+                                "name": real_name, 
+                                "holiday": desc,
+                                "debug": debug_info
+                            })
+                            pass 
 
                         # ══ SKENARIO UTAMA ════════════════════════════════════
                         else:
@@ -1080,7 +1106,13 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                 # Cek apakah sudah waktunya pulang
                                 can_checkout = False
                                 try:
-                                    check_in_dt  = datetime.strptime(f"{today} {existing['check_in']}", "%Y-%m-%d %H:%M:%S")
+                                    # Gunakan helper parsing yang lebih fleksibel
+                                    c_time = existing['check_in']
+                                    if len(c_time.split(':')) == 2: # HH:MM
+                                        check_in_dt = datetime.strptime(f"{today} {c_time}", "%Y-%m-%d %H:%M")
+                                    else: # HH:MM:SS atau lainnya
+                                        check_in_dt = datetime.strptime(f"{today} {c_time}", "%Y-%m-%d %H:%M:%S")
+                                    
                                     minutes_diff = (now - check_in_dt).total_seconds() / 60
                                     
                                     # Logika Cerdas:
@@ -1135,7 +1167,7 @@ async def websocket_kiosk_endpoint(websocket: WebSocket):
                                     })
                                 else:
                                     # CHECK-IN BERHASIL
-                                    status = "hadir" if time_now <= limit_val else "alfa"
+                                    status = "hadir"
                                     conn.execute(
                                         "INSERT INTO attendance (employee_id, date, check_in, status, recorded_by) VALUES (%s, %s, %s, %s, %s)",
                                         (face_id, today, now.strftime("%H:%M:%S"), status, gate_admin_id)

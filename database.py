@@ -141,6 +141,15 @@ def init_db():
                 cursor.execute("ALTER TABLE attendance ADD FOREIGN KEY (recorded_by) REFERENCES admins(id) ON DELETE SET NULL")
                 print("[DB INFO] Added column recorded_by to attendance.")
 
+            # Migrasi: Tambahkan UNIQUE constraint ke attendance jika belum ada
+            cursor.execute("SHOW INDEX FROM attendance WHERE Column_name = 'employee_id' AND Key_name = 'employee_id_date_unique'")
+            if not cursor.fetchone():
+                try:
+                    cursor.execute("CREATE UNIQUE INDEX employee_id_date_unique ON attendance (employee_id, date)")
+                    print("[DB INFO] Added UNIQUE constraint to attendance (employee_id, date).")
+                except Exception as e_idx:
+                    print(f"[DB WARNING] Gagal membuat UNIQUE index (mungkin ada data duplikat): {e_idx}")
+
             # Seed System Settings jika kosong
             cursor.execute("SELECT COUNT(*) as count FROM system_settings")
             if cursor.fetchone()['count'] == 0:

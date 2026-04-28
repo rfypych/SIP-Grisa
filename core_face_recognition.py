@@ -17,6 +17,10 @@ class FaceAttendanceSystem:
         
         self._load_config()
         self._load_encodings()
+        
+        # Inisialisasi Haar Cascade untuk fast rejection
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        self.fast_detector = cv2.CascadeClassifier(cascade_path)
 
     def _load_config(self):
         if self.config_path.exists():
@@ -156,13 +160,20 @@ class FaceAttendanceSystem:
         if not self.known_face_encodings:
             return ("No Data", None, 0) if return_confidence else ("No Data", None)
 
-        # Optimasi: Gunakan lebar tetap (misal 400px) agar performa konsisten di berbagai resolusi input
+        # Optimasi: Gunakan lebar tetap (misal 320px) agar performa konsisten di berbagai resolusi input
         h, w = frame.shape[:2]
-        target_width = 400
+        target_width = 320
         ratio = target_width / w
         target_height = int(h * ratio)
         
         small_frame = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
+        
+        # Fast Face Rejection menggunakan Haar Cascade
+        gray_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
+        faces = self.fast_detector.detectMultiScale(gray_frame, scaleFactor=1.1, minNeighbors=4)
+        if len(faces) == 0:
+            return (None, None, 0) if return_confidence else (None, None)
+            
         rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
         
         # Optimasi: number_of_times_to_upsample=0 lebih cepat untuk CPU

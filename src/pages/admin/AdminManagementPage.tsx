@@ -3,7 +3,7 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
-import { UserPlus, Trash2, ShieldCheck, ShieldAlert, UserCog, ScanFace } from 'lucide-react';
+import { UserPlus, Trash2, ShieldCheck, ShieldAlert, UserCog, ScanFace, Pencil, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdminUser {
@@ -18,6 +18,7 @@ export default function AdminManagementPage() {
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'superadmin' | 'kiosk'>('admin');
   const [isLoading, setIsLoading] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   
   const { token, user: currentUser } = useAuthStore();
 
@@ -38,33 +39,54 @@ export default function AdminManagementPage() {
 
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUsername || !newPassword) return toast.error("Isi semua field");
+    if (!newUsername) return toast.error("Username harus diisi");
+    if (!editingId && !newPassword) return toast.error("Password harus diisi untuk akun baru");
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
+      const url = editingId ? `/api/admin/users/${editingId}` : '/api/admin/users';
+      const method = editingId ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method: method,
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ username: newUsername, password: newPassword, role: newRole })
+        body: JSON.stringify({ 
+          username: newUsername, 
+          password: newPassword || undefined, 
+          role: newRole 
+        })
       });
 
       if (res.ok) {
-        toast.success("Admin baru berhasil dibuat");
-        setNewUsername('');
-        setNewPassword('');
+        toast.success(editingId ? "Admin berhasil diperbarui" : "Admin baru berhasil dibuat");
+        handleCancelEdit();
         fetchAdmins();
       } else {
         const err = await res.json();
-        toast.error(err.detail || "Gagal membuat admin");
+        toast.error(err.detail || "Gagal menyimpan data");
       }
     } catch (e) {
       toast.error("Kesalahan jaringan");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleEditClick = (adm: AdminUser) => {
+    setEditingId(adm.id);
+    setNewUsername(adm.username);
+    setNewRole(adm.role);
+    setNewPassword(''); // Password opsional saat edit
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setNewUsername('');
+    setNewPassword('');
+    setNewRole('admin');
   };
 
   const handleDeleteAdmin = async (id: number) => {
@@ -99,8 +121,12 @@ export default function AdminManagementPage() {
         <Card className="lg:col-span-1 border-slate-200">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-emerald-600" />
-              Tambah Admin Baru
+              {editingId ? (
+                <Pencil className="w-5 h-5 text-blue-600" />
+              ) : (
+                <UserPlus className="w-5 h-5 text-emerald-600" />
+              )}
+              {editingId ? 'Edit Akun Admin' : 'Tambah Admin Baru'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -114,12 +140,14 @@ export default function AdminManagementPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase">Password</label>
+                <label className="text-xs font-bold text-slate-400 uppercase">
+                  Password {editingId && <span className="text-[10px] lowercase font-normal italic">(Kosongkan jika tidak diubah)</span>}
+                </label>
                 <Input 
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Min 8 karakter"
+                  placeholder={editingId ? "********" : "Min 8 karakter"}
                 />
               </div>
               <div className="space-y-1.5">
@@ -134,9 +162,16 @@ export default function AdminManagementPage() {
                   <option value="kiosk">Akun Gerbang (Kios Only)</option>
                 </select>
               </div>
-              <Button disabled={isLoading} className="w-full bg-emerald-600 hover:bg-emerald-700 font-bold">
-                {isLoading ? 'Proses...' : 'Simpan Akun'}
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button disabled={isLoading} className={`w-full font-bold ${editingId ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                  {isLoading ? 'Proses...' : editingId ? 'Simpan Perubahan' : 'Simpan Akun'}
+                </Button>
+                {editingId && (
+                  <Button type="button" variant="outline" onClick={handleCancelEdit} className="w-full">
+                    <X className="w-4 h-4 mr-2" /> Batal
+                  </Button>
+                )}
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -179,19 +214,33 @@ export default function AdminManagementPage() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        {adm.id !== currentUser?.id && (
+                        <div className="flex items-center justify-end gap-1">
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            onClick={() => handleDeleteAdmin(adm.id)}
-                            className="text-red-500 hover:bg-red-50"
+                            onClick={() => handleEditClick(adm)}
+                            className="text-blue-500 hover:bg-blue-50"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Pencil className="w-4 h-4" />
                           </Button>
-                        )}
-                        {adm.id === currentUser?.id && (
-                          <span className="text-[10px] font-bold text-slate-400 uppercase italic">Anda</span>
-                        )}
+                          
+                          {adm.id !== currentUser?.id && adm.username !== 'grisa_super_admin_2026' ? (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => handleDeleteAdmin(adm.id)}
+                              className="text-red-500 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          ) : (
+                            <div className="w-10 h-10 flex items-center justify-center">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase italic">
+                                {adm.id === currentUser?.id ? 'Anda' : 'System'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
