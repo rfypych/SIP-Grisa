@@ -49,10 +49,16 @@ export default function KioskPage() {
     const timer = setInterval(() => setTime(new Date()), 1000);
     
     // Antolasi list kamera
-    navigator.mediaDevices.enumerateDevices().then(devices => {
-        const videoDevices = devices.filter(i => i.kind === 'videoinput');
-        setDevices(videoDevices);
-    });
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices().then(devices => {
+          const videoDevices = devices.filter(i => i.kind === 'videoinput');
+          setDevices(videoDevices);
+      }).catch(err => {
+          console.error("Gagal mendeteksi kamera:", err);
+      });
+    } else {
+      console.warn("API MediaDevices tidak tersedia. Pastikan menggunakan HTTPS.");
+    }
 
     // Fetch backend settings to get cooldownSeconds
     if (token) {
